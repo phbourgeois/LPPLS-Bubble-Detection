@@ -9,6 +9,7 @@ import streamlit as st
 sys.path.insert(0, str(Path(__file__).resolve().parent / "src"))
 from lppls_bubble import DEFAULT_WINDOWS, run_snapshot, BacktestSettings, run_backtest, REFERENCE_ENGINE
 from lppls_bubble.reports import make_html, make_pdf
+from lppls_bubble.delivery import build_delivery_zip
 from lppls_bubble.statistical import StatisticalConfig, decide_asof
 import numpy as np
 import pandas as pd
@@ -86,7 +87,14 @@ if submitted:
             a.metric("Actifs",len(bubbles))
             b.metric("Ajustements LPPLS",len(details))
             c.metric("Bulles coherentes UP",int((bubbles.bubble_multiscale_state=="COHERENT_MULTI_UP").sum()))
-            tab1,tab2,tab3,tab4=st.tabs(["Classement","Heatmap","Cours","Portefeuilles et exports"])
+            statistical_exports = {}
+            backtest_exports = {}
+            run_status = {
+                "lppls": "success",
+                "backtest": "not_requested" if not run_bt else "pending",
+                "statistical": "not_requested" if not run_statistical else "pending",
+            }
+            tab1,tab2,tab3,tab4=st.tabs(["Classement","Heatmap","Cours","Portefeuilles"])
             with tab1:
                 st.dataframe(bubbles,use_container_width=True,hide_index=True)
                 st.dataframe(details,use_container_width=True,hide_index=True)
@@ -97,9 +105,6 @@ if submitted:
                 st.line_chart(weekly[asset].dropna(),use_container_width=True)
             with tab4:
                 st.dataframe(portfolio,use_container_width=True,hide_index=True)
-                for name,content in exports.items():
-                    mime="text/csv" if name.endswith(".csv") else ("application/pdf" if name.endswith(".pdf") else ("text/html" if name.endswith(".html") else "image/png"))
-                    st.download_button(f"Telecharger {name}",content,file_name=name,mime=mime,key=name)
 
             if run_statistical:
                 st.subheader("Diagnostic statistique : non validé économiquement")
@@ -118,15 +123,17 @@ if submitted:
                     rows = decide_asof(eligible, cfg, asof)
                     if not rows:
                         st.info("Aucune fenêtre complète 52/104 semaines pour ce diagnostic.")
+                        run_status["statistical"] = "no_eligible_windows"
                     else:
                         diag = pd.DataFrame(rows)
                         st.metric("Signaux statistiquement acceptés", int(diag.significant.sum()))
                         st.dataframe(diag.sort_values(["q_bh", "asset"]), use_container_width=True, hide_index=True)
-                        st.download_button("Exporter le diagnostic statistique", diag.to_csv(index=False).encode(),
-                            file_name=f"lppls_significance_{asof}.csv", mime="text/csv")
+                        statistical_exports[f"lppls_significance_{asof}.csv"] = diag.to_csv(index=False).encode("utf-8")
+                        run_status["statistical"] = "success"
                         st.warning("Le test n'est pas une probabilité de bulle. "
                                    "Une absence d'alerte ne garantit pas l'absence de retournement.")
                 except Exception as exc:
+                    run_status["statistical"] = "error: " + str(exc)
                     st.error(f"Diagnostic statistique impossible : {exc}")
 
             if run_bt:
@@ -138,8 +145,11 @@ if submitted:
                         int(bt_hold), int(bt_periods), float(bt_fees),
                         bt_quality, bt_events.getvalue() if bt_events is not None else None)
                 except Exception as exc:
+                    run_status["backtest"] = "error: " + str(exc)
                     st.error(f"Backtest impossible : {exc}")
                 else:
+                    backtest_exports = bt_exports
+                    run_status["backtest"] = "success"
                     st.dataframe(bt_metrics, use_container_width=True, hide_index=True)
                     with st.expander("Audit qualité causal et conventions de pondération"):
                         st.dataframe(bt_quality_history, use_container_width=True, hide_index=True)
@@ -149,6 +159,40 @@ if submitted:
                         st.dataframe(bt_states, use_container_width=True, hide_index=True)
                         st.dataframe(bt_lo, use_container_width=True, hide_index=True)
                         st.dataframe(bt_ls, use_container_width=True, hide_index=True)
-                    for name, content in bt_exports.items():
-                        mime = "text/csv" if name.endswith(".csv") else "image/png"
-                        st.download_button(f"Telecharger {name}", content, file_name=name, mime=mime, key="bt_" + name)
+            # One archive per analysis: snapshot, backtest and optional
+            # experimental diagnostics are preserved under separate folders.
+            # The manifest captures parameters and partial failures.
+            params = {
+                "windows_weeks": tuple(sorted(selected)),
+                "reference_engine": REFERENCE_ENGINE,
+                "backtest_requested": bool(run_bt),
+                "statistical_requested": bool(run_statistical),
+            }
+            if run_bt:
+                params["backtest"] = {
+                    "start_date": bt_start.isoformat(),
+                    "hold_weeks": int(bt_hold),
+                    "max_rebalances": int(bt_periods),
+                    "fee_bps": float(bt_fees),
+                    "quality_policy": bt_quality,
+                    "event_register_supplied": bt_events is not None,
+                }
+            delivery_zip = build_delivery_zip(
+                exports, backtest_exports, statistical_exports,
+                source_csv=upload.getvalue(), source_name=upload.name,
+                parameters=params, run_status=run_status,
+            )
+            st.subheader("Télécharger tous les livrables")
+            st.caption(
+                "Une seule archive ZIP contenant les résultats LPPLS, "
+                "le backtest et le diagnostic statistique lorsqu'ils sont calculés, "
+                "plus le CSV source et un manifeste d'audit."
+            )
+            st.download_button(
+                "Télécharger les livrables LPPLS (ZIP)",
+                data=delivery_zip,
+                file_name="lppls_livrables_complets.zip",
+                mime="application/zip",
+                type="primary",
+                key="lppls_livrables_zip",
+            )
