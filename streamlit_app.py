@@ -55,24 +55,25 @@ def calculate_backtest(payload: bytes, windows: tuple[int, ...], start_date: str
                 result["weights_lo"], result["weights_ls"],
                 result["quality_history"], result["weighting_policy"], exports)
 
-with st.form("input_form"):
-    upload = st.file_uploader("CSV de cours (standard : Date;Actif... ou Datastream : trois lignes meta puis Name;Actif...)",type="csv")
-    selected = st.multiselect("Fenetres hebdomadaires", list(DEFAULT_WINDOWS), default=list(DEFAULT_WINDOWS))
-    run_statistical = st.checkbox("Diagnostic statistique expérimental (bootstrap, 52 et 104 semaines)", value=False)
-    run_bt = st.checkbox("Calculer également un backtest historique expérimental", value=False)
-    if run_bt:
-        st.caption("Les signaux au temps t n'utilisent aucune donnee posterieure à t. La strategie est reponderee periodiquement (pas de reproduction numerique de la version notebook).")
-        bt_start = st.date_input("Date de debut", value=__import__("datetime").date(2024, 2, 1))
-        bt_hold = st.number_input("Periode de rebalancement (semaines)", min_value=1, max_value=26, value=4)
-        bt_periods = st.number_input("Nombre maximal de rebalancements", min_value=1, max_value=24, value=6)
-        bt_fees = st.number_input("Frais de transactions (points de base)", min_value=0.0, max_value=100.0, value=0.0)
-        bt_quality = st.selectbox("Politique de qualité des cours",
-                                  ["audit", "block_documented"], index=0,
-                                  help="audit: alertes sans exclusion; block_documented: blocages selon dates de publication d’un registre externe")
-        bt_events = st.file_uploader("Registre d’événements CSV facultatif (asset,published_at,action,source)",
-                                     type="csv", key="quality_events")
-        st.caption("La volatilité extrême est signalée, mais n’entraîne aucune exclusion automatique. Pondérations originales préservées.")
-    submitted = st.form_submit_button("Lancer l'analyse", type="primary")
+# Keep controls reactive: Streamlit forms defer checkbox changes until submit.
+# The analysis itself runs only after the explicit button click.
+upload = st.file_uploader("CSV de cours (standard : Date;Actif... ou Datastream : trois lignes meta puis Name;Actif...)",type="csv")
+selected = st.multiselect("Fenetres hebdomadaires", list(DEFAULT_WINDOWS), default=list(DEFAULT_WINDOWS))
+run_statistical = st.checkbox("Diagnostic statistique expérimental (bootstrap, 52 et 104 semaines)", value=False)
+run_bt = st.checkbox("Calculer également un backtest historique expérimental", value=False)
+if run_bt:
+    st.caption("Les signaux au temps t n'utilisent aucune donnee posterieure à t. La strategie est reponderee periodiquement (pas de reproduction numerique de la version notebook).")
+    bt_start = st.date_input("Date de debut", value=__import__("datetime").date(2024, 2, 1))
+    bt_hold = st.number_input("Periode de rebalancement (semaines)", min_value=1, max_value=26, value=4)
+    bt_periods = st.number_input("Nombre maximal de rebalancements", min_value=1, max_value=24, value=6)
+    bt_fees = st.number_input("Frais de transactions (points de base)", min_value=0.0, max_value=100.0, value=0.0)
+    bt_quality = st.selectbox("Politique de qualité des cours",
+                              ["audit", "block_documented"], index=0,
+                              help="audit: alertes sans exclusion; block_documented: blocages selon dates de publication d’un registre externe")
+    bt_events = st.file_uploader("Registre d’événements CSV facultatif (asset,published_at,action,source)",
+                                 type="csv", key="quality_events")
+    st.caption("La volatilité extrême est signalée, mais n’entraîne aucune exclusion automatique. Pondérations originales préservées.")
+submitted = st.button("Lancer l'analyse", type="primary")
 
 if submitted:
     # Never keep a previous archive when a new submission has failed.
