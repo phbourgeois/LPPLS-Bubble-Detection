@@ -32,16 +32,24 @@ def calculate(payload: bytes, windows: tuple[int, ...]):
 
 @st.cache_data(show_spinner="Backtest historique exploratoire en cours (grille LPPLS)...")
 def calculate_backtest(payload: bytes, windows: tuple[int, ...], start_date: str,
-                       hold_weeks: int, max_rebalances: int, fee_bps: float):
+                       hold_weeks: int, max_rebalances: int, fee_bps: float,
+                       quality_policy: str, event_payload: bytes | None):
     with tempfile.TemporaryDirectory(prefix="lppls_bt_") as folder:
         root = Path(folder)
         input_csv = root / "uploaded.csv"
         input_csv.write_bytes(payload)
         config = BacktestSettings(start_date=start_date, windows=windows,
-                                  hold_weeks=hold_weeks, max_rebalances=max_rebalances, fee_bps=fee_bps)
-        result = run_backtest(input_csv, root / "backtest", config)
+                                  hold_weeks=hold_weeks, max_rebalances=max_rebalances, fee_bps=fee_bps,
+                                  quality_policy=quality_policy)
+        events_path = None
+        if event_payload is not None:
+            events_path = root / "quality_events.csv"
+            events_path.write_bytes(event_payload)
+        result = run_backtest(input_csv, root / "backtest", config, quality_events_csv=events_path)
         exports = {p.name: p.read_bytes() for p in sorted((root / "backtest").iterdir()) if p.is_file()}
-        return result["nav"], result["metrics"], result["states"], result["weights_lo"], result["weights_ls"], exports
+        return (result["nav"], result["metrics"], result["states"],
+                result["weights_lo"], result["weights_ls"],
+                result["quality_history"], result["weighting_policy"], exports)
 
 with st.form("input_form"):
     upload = st.file_uploader("CSV de cours (standard : Date;Actif... ou Datastream : trois lignes meta puis Name;Actif...)",type="csv")
@@ -54,6 +62,12 @@ with st.form("input_form"):
         bt_hold = st.number_input("Periode de rebalancement (semaines)", min_value=1, max_value=26, value=4)
         bt_periods = st.number_input("Nombre maximal de rebalancements", min_value=1, max_value=24, value=6)
         bt_fees = st.number_input("Frais de transactions (points de base)", min_value=0.0, max_value=100.0, value=0.0)
+        bt_quality = st.selectbox("Politique de qualité des cours",
+                                  ["audit", "block_documented"], index=0,
+                                  help="audit: alertes sans exclusion; block_documented: blocages selon dates de publication d’un registre externe")
+        bt_events = st.file_uploader("Registre d’événements CSV facultatif (asset,published_at,action,source)",
+                                     type="csv", key="quality_events")
+        st.caption("La volatilité extrême est signalée, mais n’entraîne aucune exclusion automatique. Pondérations originales préservées.")
     submitted = st.form_submit_button("Lancer l'analyse", type="primary")
 
 if submitted:
@@ -119,13 +133,17 @@ if submitted:
                 st.subheader("Backtest exploratoire : validation scientifique en cours")
                 st.info("Les notebooks d'origine sont archives dans le depot. Le nouveau backtest exclut la selection avec cours futurs et suit les poids qui derivent entre rebalancements ; il est donc DIFFERENT de l'ancien backtest.")
                 try:
-                    bt_nav, bt_metrics, bt_states, bt_lo, bt_ls, bt_exports = calculate_backtest(
+                    bt_nav, bt_metrics, bt_states, bt_lo, bt_ls, bt_quality_history, bt_weighting_policy, bt_exports = calculate_backtest(
                         upload.getvalue(), tuple(sorted(selected)), bt_start.isoformat(),
-                        int(bt_hold), int(bt_periods), float(bt_fees))
+                        int(bt_hold), int(bt_periods), float(bt_fees),
+                        bt_quality, bt_events.getvalue() if bt_events is not None else None)
                 except Exception as exc:
                     st.error(f"Backtest impossible : {exc}")
                 else:
                     st.dataframe(bt_metrics, use_container_width=True, hide_index=True)
+                    with st.expander("Audit qualité causal et conventions de pondération"):
+                        st.dataframe(bt_quality_history, use_container_width=True, hide_index=True)
+                        st.dataframe(bt_weighting_policy, use_container_width=True, hide_index=True)
                     st.line_chart(bt_nav.set_index("date")[["nav_long_only", "nav_long_short"]], use_container_width=True)
                     with st.expander("Signaux, positions et historique"):
                         st.dataframe(bt_states, use_container_width=True, hide_index=True)
