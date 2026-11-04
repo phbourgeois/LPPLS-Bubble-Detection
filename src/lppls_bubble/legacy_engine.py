@@ -292,9 +292,9 @@ def run_snapshot(input_csv: str | Path, output_dir: str | Path, window_weeks=DEF
 
     bt = bubble_type.set_index("asset")
     # Un actif dont les 104 dernieres semaines sont incompletes ne peut etre detenu.
-    complete = weekly.columns[
+    complete = (weekly.columns[
         weekly.tail(max(WINDOW_WEEKS)).notna().all() & (weekly.iloc[-1] > 0)
-    ]
+    ] if len(weekly) >= max(WINDOW_WEEKS) else pd.Index([]))
     eligible_long = bt.index[bt["bubble_multiscale_state"] != "COHERENT_MULTI_UP"].intersection(complete, sort=False)
     w_long = inv_vol.reindex(eligible_long).fillna(0).clip(lower=0)
     w_long = w_long / w_long.sum() if w_long.sum() > 0 else w_long

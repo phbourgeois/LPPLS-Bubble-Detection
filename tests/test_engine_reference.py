@@ -60,3 +60,15 @@ def test_rebalance_fees_reconcile_with_nav(tmp_path):
         np.testing.assert_allclose(actual, reported, atol=1e-12, rtol=0)
         np.testing.assert_allclose(nav["nav_"+strategy].iloc[0],
                                    1+nav["ret_"+strategy].iloc[0], atol=1e-12, rtol=0)
+
+
+def test_short_history_is_never_investable(tmp_path):
+    sample = pd.read_csv(EXAMPLE, sep=";").iloc[:150]
+    p = tmp_path / "too_short_for_104.csv"
+    sample.to_csv(p, sep=";", index=False)
+    result = run_snapshot(p, tmp_path / "out")
+    # 150 trading days is roughly 30 weeks: models may be fit on
+    # shorter selected windows, but 104-week portfolio eligibility is forbidden.
+    positions = result["portfolio"]
+    assert np.allclose(positions["weight_long_only"], 0)
+    assert np.allclose(positions["weight_long_short"], 0)
