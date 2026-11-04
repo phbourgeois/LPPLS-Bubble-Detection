@@ -26,6 +26,7 @@ def test_all_outputs_are_preserved_with_manifest():
         snapshot, backtest, statistical,
         source_csv=source,
         source_name="SBF_components.csv",
+        event_register_csv=b"asset,published_at,action,source\nA,2025-01-01,BLOCK,notice\n",
         parameters={"windows": [13, 26, 104], "fees_bps": 0},
         run_status={"lppls": "success", "backtest": "success", "statistical": "success"},
     )
@@ -37,11 +38,12 @@ def test_all_outputs_are_preserved_with_manifest():
         "backtest/backtest_nav_plot.png": backtest["backtest_nav_plot.png"],
         "statistique/lppls_significance.csv": statistical["lppls_significance.csv"],
         "donnees/source.csv": source,
+        "donnees/quality_events.csv": b"asset,published_at,action,source\nA,2025-01-01,BLOCK,notice\n",
     }.items():
         assert items[path] == expected
     assert "README.md" in items
     metadata = json.loads(items["manifest.json"])
-    assert metadata["file_count"] == 6
+    assert metadata["file_count"] == 7
     assert metadata["source_filename"] == "SBF_components.csv"
     assert metadata["parameters"]["windows"] == [13, 26, 104]
     assert metadata["run_status"]["backtest"] == "success"
