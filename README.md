@@ -61,3 +61,22 @@ La règle historique R² ne permet pas d'identifier une bulle avec fiabilité. L
 Premier test sur prix publics réels 2007–2016, quatre actions et le S&P 500 : 200 fits sur 20 dates de décision (2013–2015), **0 signal significatif**, alors que 8 épisodes de forte baisse et 13 de forte hausse sont observés parmi les actions au cours des 8 semaines suivantes. **Aucune capacité prédictive démontrée.** Voir [rapport](docs/STATISTICAL_VALIDATION_2026_11_04.md) et [résultats](docs/statistical_validation/summary.json).
 
 Reproduction locale : `PYTHONPATH=src python scripts/validate_lppls_oos.py --input data/external/plotly_stockdata_weekly_2007_2016.csv` ; `PYTHONPATH=src pytest -q`. Aucun workflow Actions ajouté.
+
+## Contrôle qualité causal et pondération (proposition du 4 novembre 2026)
+
+Le backtest peut maintenant exporter un audit de qualité par actif et date de décision (`backtest_quality_asof.csv`) et la convention de pondération (`backtest_weighting_policy.csv`). Le mode `audit` est le défaut : **aucun titre n'est exclu sur la seule base d'une variation extrême**, et les poids historiques restent inchangés. Le mode optionnel `block_documented` accepte un registre CSV de décisions publiées datées, sans anticiper les événements futurs. Cette mise à jour ne déploie pas les variantes `MIXED_SCALES` par défaut.
+
+Voir [règles, limites et décisions en suspens](docs/QUALITY_FILTER_AND_WEIGHTING.md).
+
+## Téléchargement unique depuis Streamlit (4 novembre 2026)
+
+Après une exécution réussie de l'analyse LPPLS, l'interface présente **un seul bouton** `Télécharger les livrables LPPLS (ZIP)`. L'archive `lppls_livrables_complets.zip` est organisée en dossiers :
+
+- `donnees/source.csv` : copie du fichier d'entrée réellement analysé ;
+- `donnees/quality_events.csv` : registre des événements si fourni pour le backtest ;
+- `lppls/` : tous les exports des estimations, synthèses et rapports HTML/PDF ;
+- `backtest/` : poids, états, qualité, turnover, NAV et performances, si demandé et réussi ;
+- `statistique/` : CSV du diagnostic expérimental, s'il a été calculé ;
+- `manifest.json` et `README.md` : paramètres d'exécution, statut de chaque calcul, empreintes SHA-256 des fichiers et guide de lecture.
+
+Un backtest en erreur n'est **jamais présenté comme réussi** : le ZIP conserve les autres résultats et le manifeste mentionne explicitement l'échec. Les fichiers CSV, PNG, HTML, PDF conservent leurs octets originaux dans l'archive. Ce regroupement est destiné à faciliter un audit des résultats en partageant un seul fichier, sans modification des calculs ou règles de trading.

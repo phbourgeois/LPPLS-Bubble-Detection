@@ -14,6 +14,7 @@ import numpy as np
 import pandas as pd
 
 from .legacy_engine import DEFAULT_WINDOWS
+from .quality import load_event_register, quality_asof
 
 
 @dataclass(frozen=True)
@@ -24,6 +25,9 @@ class BacktestSettings:
     windows: tuple[int, ...] = DEFAULT_WINDOWS
     max_rebalances: int = 24
     fee_bps: float = 0.0
+    quality_policy: str = "audit"  # audit or block_documented; no statistical quarantine
+    quality_stale_weeks: int = 8
+    quality_extreme_return: float = 0.5
 
     def validate(self):
         if self.hold_weeks < 1 or self.max_rebalances < 1:
@@ -34,6 +38,10 @@ class BacktestSettings:
             raise ValueError("lookback_weeks doit couvrir la plus grande fenetre LPPLS")
         if self.fee_bps < 0:
             raise ValueError("fee_bps doit etre positif")
+        if self.quality_policy not in ("audit", "block_documented"):
+            raise ValueError("quality_policy doit etre audit ou block_documented")
+        if self.quality_stale_weeks < 2 or self.quality_extreme_return <= 0:
+            raise ValueError("Seuils de qualite invalides")
 
 
 def load_weekly(input_csv: str | Path) -> pd.DataFrame:
@@ -88,12 +96,15 @@ def _aggregated_signal(signals: dict[int, str], windows: tuple[int, ...]) -> str
     return "UP" if up > down else "DOWN" if down > up else "MIXED"
 
 
-def build_targets_asof(past: pd.DataFrame, config: BacktestSettings) -> tuple[pd.DataFrame, pd.DataFrame]:
+def build_targets_asof(past: pd.DataFrame, config: BacktestSettings,
+                       blocked_assets: frozenset[str] = frozenset()) -> tuple[pd.DataFrame, pd.DataFrame]:
     """Retourne les signaux et les poids à partir du passé seulement."""
     eligible = past.columns[past.tail(config.lookback_weeks).notna().all()].tolist()
     # all() seul n'est pas suffisant si la serie commence recemment.
     if len(past) < config.lookback_weeks:
         eligible = []
+    if blocked_assets:
+        eligible = [asset for asset in eligible if asset not in blocked_assets]
     states = pd.DataFrame({"asset": list(past.columns), "state": "INELIGIBLE", "priority_score": 0.0})
     weights = pd.DataFrame({"asset": list(past.columns), "w_lo_target": 0.0, "w_ls_target": 0.0})
     if not eligible:
@@ -128,7 +139,9 @@ def build_targets_asof(past: pd.DataFrame, config: BacktestSettings) -> tuple[pd
     states = states.set_index("asset")
     states.loc[bt.index, ["state", "priority_score"]] = bt[["state", "priority_score"]]
     rets = past[eligible].pct_change(fill_method=None)
-    vol_52 = rets.tail(52).std(skipna=True).replace(0, np.nan)
+    recent_returns = rets.tail(52)
+    # pandas Series.std has no min_count kwarg: mask by count separately.
+    vol_52 = recent_returns.std(skipna=True).where(recent_returns.count() >= 13).replace(0, np.nan)
     inv_vol = 1 / vol_52
     inv_vol = inv_vol.replace([np.inf, -np.inf], np.nan).fillna(0).clip(lower=0)
     longs = bt.index[bt["state"] != "COHERENT_MULTI_UP"]
@@ -162,10 +175,15 @@ def _metrics(nav: pd.DataFrame, turnover: pd.DataFrame, config: BacktestSettings
     return pd.DataFrame([result])
 
 
-def run_backtest(input_csv: str | Path, output_dir: str | Path, config: BacktestSettings | None = None) -> dict:
+def run_backtest(input_csv: str | Path, output_dir: str | Path,
+                 config: BacktestSettings | None = None,
+                 quality_events_csv: str | Path | None = None) -> dict:
     """Backtest causale hebdomadaire ; le notebook historique reste une archive distincte."""
     config = config or BacktestSettings()
     config.validate()
+    if config.quality_policy == "block_documented" and quality_events_csv is None:
+        raise ValueError("block_documented requiert un registre CSV d'evenements dates")
+    events = load_event_register(quality_events_csv)
     weekly = load_weekly(input_csv)
     outdir = Path(output_dir)
     outdir.mkdir(parents=True, exist_ok=True)
@@ -184,9 +202,18 @@ def run_backtest(input_csv: str | Path, output_dir: str | Path, config: Backtest
     all_states = []
     lo_rows = []
     ls_rows = []
+    quality_rows = []
     for t in decision_dates:
         past = weekly.loc[:t]
-        states, targets = build_targets_asof(past, config)
+        quality = quality_asof(past, events, lookback_weeks=config.lookback_weeks,
+                               stale_weeks=config.quality_stale_weeks,
+                               extreme_return=config.quality_extreme_return)
+        blocked = (frozenset(quality.loc[quality.event_block, "asset"])
+                   if config.quality_policy == "block_documented" else frozenset())
+        quality["block_applied"] = quality.asset.isin(blocked)
+        quality["quality_policy"] = config.quality_policy
+        quality_rows.append(quality)
+        states, targets = build_targets_asof(past, config, blocked_assets=blocked)
         decisions[t] = targets.set_index("asset")
         all_states.append(states.assign(date=t.date().isoformat()))
         lo_rows.append(targets[["asset", "w_lo_target"]].rename(columns={"w_lo_target": "weight"}).assign(date=t.date().isoformat()))
@@ -246,6 +273,12 @@ def run_backtest(input_csv: str | Path, output_dir: str | Path, config: Backtest
     nav = pd.DataFrame(nav_rows)
     turnover = pd.DataFrame(turn_rows)
     states = pd.concat(all_states, ignore_index=True)
+    quality_history = pd.concat(quality_rows, ignore_index=True)
+    weighting_policy = pd.DataFrame([
+        {"strategy": "long_only", "sleeve": "long", "weight_method": "inverse_weekly_volatility", "lookback_weeks": 52},
+        {"strategy": "long_short", "sleeve": "long", "weight_method": "inverse_weekly_volatility", "lookback_weeks": 52},
+        {"strategy": "long_short", "sleeve": "short", "weight_method": "lppls_priority_score", "lookback_weeks": np.nan},
+    ])
     weights_lo = pd.concat(lo_rows, ignore_index=True)[["date", "asset", "weight"]]
     weights_ls = pd.concat(ls_rows, ignore_index=True)[["date", "asset", "weight"]]
     metrics = _metrics(nav, turnover, config, len(decision_dates))
@@ -255,6 +288,8 @@ def run_backtest(input_csv: str | Path, output_dir: str | Path, config: Backtest
         "backtest_portfolios_long_only_weights_wide.csv": weights_lo.pivot(index="date", columns="asset", values="weight"),
         "backtest_portfolios_long_short_weights_wide.csv": weights_ls.pivot(index="date", columns="asset", values="weight"),
         "backtest_states.csv": states,
+        "backtest_quality_asof.csv": quality_history,
+        "backtest_weighting_policy.csv": weighting_policy,
         "backtest_turnover.csv": turnover,
         "backtest_nav_weekly.csv": nav,
         "backtest_summary_metrics.csv": metrics,
@@ -274,4 +309,5 @@ def run_backtest(input_csv: str | Path, output_dir: str | Path, config: Backtest
     plt.close(fig)
     return {"weekly": weekly, "nav": nav, "metrics": metrics, "weights_lo": weights_lo,
             "weights_ls": weights_ls, "states": states, "turnover": turnover,
+            "quality_history": quality_history, "weighting_policy": weighting_policy,
             "output_dir": outdir, "settings": config}
