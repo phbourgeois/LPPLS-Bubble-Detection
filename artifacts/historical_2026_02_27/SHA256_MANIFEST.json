@@ -1,0 +1,36 @@
+{
+  "provenance": "lppls_outputs.zip / lppls_complete_notebooks_and_outputs.zip",
+  "sample_date": "2026-02-27",
+  "files": [
+    {
+      "filename": "bubble_summary_by_scale_wide.csv",
+      "size": 5356,
+      "sha256": "3783043ce9e7fca4c77279b7604defeeffd3d63af618b7e7bb369907805a7ee1"
+    },
+    {
+      "filename": "bubble_type_by_asset.csv",
+      "size": 1361,
+      "sha256": "212dc53cf52afd1eceb8e28b0192c98549c3e81fc5868a98570ee14d72b03386"
+    },
+    {
+      "filename": "details_by_scale_all_series.csv",
+      "size": 22275,
+      "sha256": "48c386747d87d39514aa5c43d7864ad8cced14a116ad2be1a0e935911ef7d93f"
+    },
+    {
+      "filename": "heatmap_global.png",
+      "size": 134213,
+      "sha256": "d56dd39f4d23720b30ded854f36a40c574a548a3bd9c5ddd0c968aa109e08b3d"
+    },
+    {
+      "filename": "portfolio_construction.csv",
+      "size": 2237,
+      "sha256": "ed131b92e8df287f5a4225b60faea423213ec4adaacdea87d3e9fcf8a940dc8f"
+    },
+    {
+      "filename": "summary_by_scale_wide.csv",
+      "size": 4644,
+      "sha256": "559c42c4e34267449f02be4e2be2c368f8825d875eae155f87e97ed7fd1be8a3"
+    }
+  ]
+}

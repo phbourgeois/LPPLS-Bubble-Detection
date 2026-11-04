@@ -33,3 +33,11 @@ Les tests s'executent localement. **Aucun workflow GitHub Actions n'est fourni**
 ## Provenance et limites
 
 Voir [docs/RECOVERY.md](docs/RECOVERY.md) et [docs/BACKTEST_AUDIT.md](docs/BACKTEST_AUDIT.md). Les notebooks historiques sont maintenant archives, mais leurs sorties d'execution ne sont pas verifiees ; aucune validite predictive n'est etablie.
+
+## Archives complémentaires (4 novembre 2026)
+
+- [Audit des deux ZIP et limites](docs/ARCHIVE_AUDIT_2026_11_04.md).
+- [Pack de recherche autonome](research/reproducible_2026_11_04/README.md) : nouveau moteur `lppls_core.py`, 6 notebooks (dont 2 nouveaux usages), exemple synthétique, source d'origine et copie corrigée ; **pas branché automatiquement sur Streamlit**.
+- [Six résultats historiques dédupliqués](artifacts/historical_2026_02_27/README.md) : 15 actifs, 105 estimations, sans prix bruts ni backtests NAV.
+
+La version de production reste `src/lppls_bubble/`. Les nouvelles variantes sont publiées isolément pour éviter de modifier les estimations et performances de la V0 sans une recette comparative.

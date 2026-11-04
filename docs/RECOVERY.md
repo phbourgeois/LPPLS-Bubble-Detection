@@ -17,7 +17,7 @@ Date : 2026-11-04.
 - `Rapport_backtest_LPPLS_SBF120.docx`.
 - CSV historiques de NAV, positions, turnover, scenarios Long-only.
 
-Les 3 fichiers ci-dessus proviennent de l'archive fournie au projet le 4 novembre 2026. Ils sont conserves SANS modification des cellules sous `notebooks/`, avec `README_ARCHIVE.txt` et les empreintes SHA256 dans `docs/BACKTEST_AUDIT.md`. Les autres archives/CSV sont encore non recuperes.
+Les 3 fichiers ci-dessus proviennent de l'archive fournie au projet le 4 novembre 2026. Ils sont conserves SANS modification des cellules sous `notebooks/`, avec `README_ARCHIVE.txt` et les empreintes SHA256 dans `docs/BACKTEST_AUDIT.md`. Les autres archives et CSV **de NAV, positions et turnover des backtests historiques** ne sont pas encore recuperes ; les six sorties LPPLS de fevrier sont decrites ci-dessous.
 
 Le moteur `src/lppls_bubble/backtest.py` est une **adaptation corrigee**, pas un fichier historique : exclusion du look-ahead d'eligibilite et rebalancement effectif des poids. Les valeurs produites ne doivent donc pas etre presentees comme une reproduction identique des backtests passes.
 
@@ -33,3 +33,10 @@ Le moteur `src/lppls_bubble/backtest.py` est une **adaptation corrigee**, pas un
 ## Regle CI
 
 Aucun fichier `.github/workflows` avant recette locale complete. Integrer plus tard un seul workflow manuel, sans `push` ou `pull_request` triggers, afin de minimiser l'usage Actions.
+
+## Archives complémentaires retrouvées le 4 novembre 2026
+
+- `lppls_outputs.zip` : 5 CSV et 1 heatmap PNG ; archivés une seule fois sous `artifacts/historical_2026_02_27/`.
+- `lppls_complete_notebooks_and_outputs.zip` : `lppls_core.py`, **six** notebooks lanceurs, exemple synthétique et copie de ces six mêmes outputs. Le tout est préservé sous `research/reproducible_2026_11_04/` ; le code d'origine et la correction sont séparés.
+- La mention « exécuté » dans `ds_lppls_pipeline_executed.ipynb` du nouveau ZIP n'est pas une preuve d'exécution.
+- Voir `docs/ARCHIVE_AUDIT_2026_11_04.md` pour les différences, corrections, validations locales et réserves.
