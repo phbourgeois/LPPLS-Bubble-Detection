@@ -16,6 +16,9 @@ import pandas as pd
 
 st.set_page_config(page_title="LPPLS Bubble Detection", page_icon="📉", layout="wide")
 st.title("LPPLS - Detection de bulles multi-echelles")
+# Persist the last complete archive across Streamlit reruns (including the download click).
+if "lppls_delivery_zip" not in st.session_state:
+    st.session_state["lppls_delivery_zip"] = None
 st.caption(f"Moteur de reference : {REFERENCE_ENGINE} (snapshot et backtest) ; alternative conservee en recherche.")
 st.warning("Validation scientifique non acquise : sur 40 marches aleatoires simulees, les 40 fits LPPLS passaient le filtre de validite historique. Ne pas utiliser comme signal de trading autonome.")
 
@@ -72,6 +75,8 @@ with st.form("input_form"):
     submitted = st.form_submit_button("Lancer l'analyse", type="primary")
 
 if submitted:
+    # Never keep a previous archive when a new submission has failed.
+    st.session_state["lppls_delivery_zip"] = None
     if not upload:
         st.error("Importer un fichier CSV.")
     elif not selected:
@@ -182,17 +187,22 @@ if submitted:
                 source_csv=upload.getvalue(), source_name=upload.name,
                 parameters=params, run_status=run_status,
             )
-            st.subheader("Télécharger tous les livrables")
-            st.caption(
-                "Une seule archive ZIP contenant les résultats LPPLS, "
-                "le backtest et le diagnostic statistique lorsqu'ils sont calculés, "
-                "plus le CSV source et un manifeste d'audit."
-            )
-            st.download_button(
-                "Télécharger les livrables LPPLS (ZIP)",
-                data=delivery_zip,
-                file_name="lppls_livrables_complets.zip",
-                mime="application/zip",
-                type="primary",
-                key="lppls_livrables_zip",
-            )
+            st.session_state["lppls_delivery_zip"] = delivery_zip
+
+# Display outside the form-submit branch so the download button remains visible
+# on subsequent reruns. This also avoids recalc when a download triggers a rerun.
+if st.session_state["lppls_delivery_zip"] is not None:
+    st.subheader("Télécharger tous les livrables")
+    st.caption(
+        "Une seule archive ZIP contenant les résultats LPPLS, "
+        "le backtest et le diagnostic statistique lorsqu'ils sont calculés, "
+        "plus le CSV source et un manifeste d'audit."
+    )
+    st.download_button(
+        "Télécharger les livrables LPPLS (ZIP)",
+        data=st.session_state["lppls_delivery_zip"],
+        file_name="lppls_livrables_complets.zip",
+        mime="application/zip",
+        type="primary",
+        key="lppls_livrables_zip",
+    )
