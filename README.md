@@ -42,12 +42,22 @@ Voir [docs/RECOVERY.md](docs/RECOVERY.md) et [docs/BACKTEST_AUDIT.md](docs/BACKT
 
 La version de production reste `src/lppls_bubble/`. Les nouvelles variantes sont publiées isolément pour éviter de modifier les estimations et performances de la V0 sans une recette comparative.
 
-## Choix du moteur de référence — comparaison contrôlée (2026-11-04)
 
-**Streamlit conserve `src/lppls_bubble`**, avec lecture CSV unifiée, continuité des semaines de prix et exclusion des actifs inéligibles. Le moteur `research/reproducible_2026_11_04/lppls_core.py` reste une variante de recherche indépendante.
+## Moteur de référence (comparaison contrôlée du 4 novembre 2026)
 
-Les deux implémentations concordent sur **56/56 ajustements LPPLS** et **8/8 classifications** sur des prix synthétiques complets. Le moteur Streamlit tient mieux compte de la dérive des poids, des transactions et des rendements nets avec frais. Sur un contrôle négatif, **40/40 marches aléatoires** satisfont pourtant le filtre de validité actuel : **la détection scientifique des bulles n'est pas validée**.
+**Référence opérationnelle : `src/lppls_bubble`** pour l'interface Streamlit (snapshots et backtests). Sur les échantillons synthétiques contrôlés, les deux moteurs concordent sur **56/56 ajustements LPPLS**, **8/8 classifications** et les pondérations instantanées sur séries complètes. Le moteur historique a été sécurisé sur la **continuité des fenêtres de prix**, sur l'exclusion des actifs incomplets des portefeuilles et sur les **formats CSV standard / Datastream**. En backtest, la variante retenue dérive réellement les positions et rapproche les rendements nets de la NAV ; la variante de recherche a des écarts comptables avec frais.
 
-- [Rapport et décision](docs/SCIENTIFIC_ENGINE_COMPARISON_2026_11_04.md).
-- Reproduction locale : `python scripts/compare_engines.py` ; tests : `python -m pytest -q`.
-- Aucun workflow GitHub Actions ajouté.
+**Avertissement scientifique essentiel :** 40/40 marches aléatoires indépendantes passent le filtre heuristique `R² >= 0,2` dans un test de simulation. L'application est un **outil de recherche exploratoire**, pas un détecteur de retournements validé ni un service de conseil en investissement.
+
+- [Protocole, résultats et décision scientifique](docs/SCIENTIFIC_ENGINE_COMPARISON_2026_11_04.md)
+- [Données et tableaux reproductibles de comparaison](docs/engine_comparison_data/summary.json)
+- Commande de reproduction locale : `python scripts/compare_engines.py`
+- **Aucune migration automatique du moteur `research/` vers Streamlit** et aucun workflow Actions ajouté.
+
+## Validation statistique séparée (2026-11-04)
+
+La règle historique R² ne permet pas d'identifier une bulle avec fiabilité. Le module expérimental `src/lppls_bubble/statistical.py` calcule des scores calibrés par bootstrap de blocs et marche aléatoire gaussienne, avec réestimation complète des modèles et correction BH entre actifs/fenêtres à chaque date. **Cette couche ne modifie pas automatiquement le backtest ou les ordres.**
+
+Premier test sur prix publics réels 2007–2016, quatre actions et le S&P 500 : 200 fits sur 20 dates de décision (2013–2015), **0 signal significatif**, alors que 8 épisodes de forte baisse et 13 de forte hausse sont observés parmi les actions au cours des 8 semaines suivantes. **Aucune capacité prédictive démontrée.** Voir [rapport](docs/STATISTICAL_VALIDATION_2026_11_04.md) et [résultats](docs/statistical_validation/summary.json).
+
+Reproduction locale : `PYTHONPATH=src python scripts/validate_lppls_oos.py --input data/external/plotly_stockdata_weekly_2007_2016.csv` ; `PYTHONPATH=src pytest -q`. Aucun workflow Actions ajouté.

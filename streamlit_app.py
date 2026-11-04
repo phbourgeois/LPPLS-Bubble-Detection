@@ -9,11 +9,14 @@ import streamlit as st
 sys.path.insert(0, str(Path(__file__).resolve().parent / "src"))
 from lppls_bubble import DEFAULT_WINDOWS, run_snapshot, BacktestSettings, run_backtest, REFERENCE_ENGINE
 from lppls_bubble.reports import make_html, make_pdf
+from lppls_bubble.statistical import StatisticalConfig, decide_asof
+import numpy as np
+import pandas as pd
 
 st.set_page_config(page_title="LPPLS Bubble Detection", page_icon="📉", layout="wide")
 st.title("LPPLS - Detection de bulles multi-echelles")
-st.caption(f"Moteur de reference : {REFERENCE_ENGINE} (snapshot et backtest) ; variante de recherche conservee.")
-st.warning("Filtre exploratoire non valide : sur 40 marches aleatoires simulees, 40 fits ont passe les filtres heuristiques. Ne pas utiliser comme signal de trading autonome.")
+st.caption(f"Moteur de reference : {REFERENCE_ENGINE} (snapshot et backtest) ; alternative conservee en recherche.")
+st.warning("Validation scientifique non acquise : sur 40 marches aleatoires simulees, les 40 fits LPPLS passaient le filtre de validite historique. Ne pas utiliser comme signal de trading autonome.")
 
 @st.cache_data(show_spinner="Calcul LPPLS en cours...")
 def calculate(payload: bytes, windows: tuple[int, ...]):
@@ -41,8 +44,9 @@ def calculate_backtest(payload: bytes, windows: tuple[int, ...], start_date: str
         return result["nav"], result["metrics"], result["states"], result["weights_lo"], result["weights_ls"], exports
 
 with st.form("input_form"):
-    upload = st.file_uploader("CSV de cours (format historique : trois lignes d'entete, colonnes Name et valeurs)",type="csv")
+    upload = st.file_uploader("CSV de cours (standard : Date;Actif... ou Datastream : trois lignes meta puis Name;Actif...)",type="csv")
     selected = st.multiselect("Fenetres hebdomadaires", list(DEFAULT_WINDOWS), default=list(DEFAULT_WINDOWS))
+    run_statistical = st.checkbox("Diagnostic statistique expérimental (bootstrap, 52 et 104 semaines)", value=False)
     run_bt = st.checkbox("Calculer également un backtest historique expérimental", value=False)
     if run_bt:
         st.caption("Les signaux au temps t n'utilisent aucune donnee posterieure à t. La strategie est reponderee periodiquement (pas de reproduction numerique de la version notebook).")
@@ -82,6 +86,34 @@ if submitted:
                 for name,content in exports.items():
                     mime="text/csv" if name.endswith(".csv") else ("application/pdf" if name.endswith(".pdf") else ("text/html" if name.endswith(".html") else "image/png"))
                     st.download_button(f"Telecharger {name}",content,file_name=name,mime=mime,key=name)
+
+            if run_statistical:
+                st.subheader("Diagnostic statistique : non validé économiquement")
+                st.caption("Test d'amélioration oscillatoire par rapport à une tendance lisse. "
+                           "Bootstrap de blocs et marche aléatoire gaussienne, 199 réplications par famille. "
+                           "Correction FDR BH à chaque date sur tous les actifs et horizons disponibles.")
+                try:
+                    cfg = StatisticalConfig()
+                    asof = weekly.index[-1].date().isoformat()
+                    eligible = {}
+                    for asset in weekly.columns:
+                        for w in cfg.windows:
+                            segment = weekly[asset].iloc[-w:]
+                            if len(segment) == w and segment.notna().all() and (segment > 0).all():
+                                eligible.setdefault(asset, {})[w] = np.log(segment.to_numpy(float))
+                    rows = decide_asof(eligible, cfg, asof)
+                    if not rows:
+                        st.info("Aucune fenêtre complète 52/104 semaines pour ce diagnostic.")
+                    else:
+                        diag = pd.DataFrame(rows)
+                        st.metric("Signaux statistiquement acceptés", int(diag.significant.sum()))
+                        st.dataframe(diag.sort_values(["q_bh", "asset"]), use_container_width=True, hide_index=True)
+                        st.download_button("Exporter le diagnostic statistique", diag.to_csv(index=False).encode(),
+                            file_name=f"lppls_significance_{asof}.csv", mime="text/csv")
+                        st.warning("Le test n'est pas une probabilité de bulle. "
+                                   "Une absence d'alerte ne garantit pas l'absence de retournement.")
+                except Exception as exc:
+                    st.error(f"Diagnostic statistique impossible : {exc}")
 
             if run_bt:
                 st.subheader("Backtest exploratoire : validation scientifique en cours")

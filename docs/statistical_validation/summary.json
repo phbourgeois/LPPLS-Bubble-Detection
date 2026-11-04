@@ -1,0 +1,130 @@
+{
+  "config": {
+    "windows": [
+      52,
+      104
+    ],
+    "bootstrap_draws": 199,
+    "block_weeks": 4,
+    "alpha": 0.1,
+    "min_cycles": 1.5,
+    "seed": 20261104
+  },
+  "holdout_start": "2013-01-04",
+  "holdout_end": "2016-02-26",
+  "source_last_week": "2015-12-04",
+  "decision_count": 20,
+  "panel_rows": 100,
+  "tested_fits": 200,
+  "significant_fits": 0,
+  "equities": {
+    "up_lppls": {
+      "n": 80,
+      "alerts": 0,
+      "events": 8,
+      "true_positive": 0,
+      "precision": null,
+      "recall": 0.0,
+      "event_base_rate": 0.1,
+      "lift": null
+    },
+    "up_momentum": {
+      "n": 80,
+      "alerts": 24,
+      "events": 8,
+      "true_positive": 2,
+      "precision": 0.08333333333333333,
+      "recall": 0.25,
+      "event_base_rate": 0.1,
+      "lift": 0.8333333333333333
+    },
+    "down_lppls": {
+      "n": 80,
+      "alerts": 0,
+      "events": 13,
+      "true_positive": 0,
+      "precision": null,
+      "recall": 0.0,
+      "event_base_rate": 0.1625,
+      "lift": null
+    },
+    "down_momentum": {
+      "n": 80,
+      "alerts": 2,
+      "events": 13,
+      "true_positive": 0,
+      "precision": 0.0,
+      "recall": 0.0,
+      "event_base_rate": 0.1625,
+      "lift": 0.0
+    }
+  },
+  "index_GSPC": {
+    "up_lppls": {
+      "n": 20,
+      "alerts": 0,
+      "events": 1,
+      "true_positive": 0,
+      "precision": null,
+      "recall": 0.0,
+      "event_base_rate": 0.05,
+      "lift": null
+    },
+    "up_momentum": {
+      "n": 20,
+      "alerts": 0,
+      "events": 1,
+      "true_positive": 0,
+      "precision": null,
+      "recall": 0.0,
+      "event_base_rate": 0.05,
+      "lift": null
+    },
+    "down_lppls": {
+      "n": 20,
+      "alerts": 0,
+      "events": 0,
+      "true_positive": 0,
+      "precision": null,
+      "recall": null,
+      "event_base_rate": 0.0,
+      "lift": null
+    },
+    "down_momentum": {
+      "n": 20,
+      "alerts": 0,
+      "events": 0,
+      "true_positive": 0,
+      "precision": null,
+      "recall": null,
+      "event_base_rate": 0.0,
+      "lift": null
+    }
+  },
+  "no_holdout_parameter_optimization": true,
+  "outcome": "10% future close-to-extreme move over 8 complete weeks; no portfolio returns",
+  "caution": "BH within as-of date only; serial/cross-asset dependence, adjusted-price provenance and survivorship unresolved",
+  "controls": {
+    "iid_gaussian_null": {
+      "n": 100,
+      "passed": 2,
+      "rate": 0.02
+    },
+    "planted_lppls": {
+      "n": 80,
+      "passed": 80,
+      "rate": 1.0
+    }
+  },
+  "source": "data/external/plotly_stockdata_weekly_local_rounded.csv",
+  "confidence_intervals": {
+    "iid_gaussian_pass_rate_95pct_wilson": "0.6%–7.0%",
+    "planted_lppls_pass_rate_95pct_wilson": "95.4%–100.0%"
+  },
+  "source_url": "https://github.com/plotly/datasets/blob/master/stockdata.csv",
+  "source_repository_license": "MIT (Plotly datasets repository)",
+  "source_file_sha256": "03438a45582bf9b48fc724f9f60d0a0f0c5754808187aa62fda3e58287a9cce2",
+  "data_processing": "Friday last observed close, values rounded to 2 decimals for committed reproducibility, 478 weekly rows",
+  "study_type": "retrospective demonstration with fixed in-script parameters, not external preregistration",
+  "no_trade_policy": "statistical layer informative only, does not change portfolio rules automatically"
+}
