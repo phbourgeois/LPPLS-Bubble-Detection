@@ -41,3 +41,13 @@ Voir [docs/RECOVERY.md](docs/RECOVERY.md) et [docs/BACKTEST_AUDIT.md](docs/BACKT
 - [Six résultats historiques dédupliqués](artifacts/historical_2026_02_27/README.md) : 15 actifs, 105 estimations, sans prix bruts ni backtests NAV.
 
 La version de production reste `src/lppls_bubble/`. Les nouvelles variantes sont publiées isolément pour éviter de modifier les estimations et performances de la V0 sans une recette comparative.
+
+## Choix du moteur de référence — comparaison contrôlée (2026-11-04)
+
+**Streamlit conserve `src/lppls_bubble`**, avec lecture CSV unifiée, continuité des semaines de prix et exclusion des actifs inéligibles. Le moteur `research/reproducible_2026_11_04/lppls_core.py` reste une variante de recherche indépendante.
+
+Les deux implémentations concordent sur **56/56 ajustements LPPLS** et **8/8 classifications** sur des prix synthétiques complets. Le moteur Streamlit tient mieux compte de la dérive des poids, des transactions et des rendements nets avec frais. Sur un contrôle négatif, **40/40 marches aléatoires** satisfont pourtant le filtre de validité actuel : **la détection scientifique des bulles n'est pas validée**.
+
+- [Rapport et décision](docs/SCIENTIFIC_ENGINE_COMPARISON_2026_11_04.md).
+- Reproduction locale : `python scripts/compare_engines.py` ; tests : `python -m pytest -q`.
+- Aucun workflow GitHub Actions ajouté.

@@ -24,30 +24,15 @@ def run_snapshot(input_csv: str | Path, output_dir: str | Path, window_weeks=DEF
     BUBBLE_WIDE_OUT = OUTPUT_DIR / "bubble_summary_by_scale_wide.csv"
     PORTFOLIO_OUT = OUTPUT_DIR / "portfolio_construction.csv"
     HEATMAP_OUT = OUTPUT_DIR / "heatmap_global.png"
-    # Cellule historique 4
-
-    import pandas as pd
+    # Cellules historiques 4–6 : parser commun avec le backtest.
+    # Aucune interpolation ou suppression des semaines calendaires manquantes.
     import numpy as np
-
-    # Le fichier contient 3 lignes d'entête (Start/End/Frequency). La 4e ligne est l'en-tête des colonnes.
-    df = pd.read_csv(INPUT_CSV, sep=";", skiprows=3, header=0, encoding="utf-8").rename(columns={"Name":"date"})
-    df["date"] = pd.to_datetime(df["date"], dayfirst=True, errors="coerce")
-    df = df.dropna(subset=["date"]).sort_values("date")
-
-    # Conversion virgule -> point puis float
-    for c in df.columns[1:]:
-        df[c] = pd.to_numeric(df[c].astype(str).str.replace(",", ".", regex=False), errors="coerce")
-
-    df = df.set_index("date")
-
-    print("Shape (daily):", df.shape)
-    df.head(3)
-
-    # Cellule historique 6
-
-    weekly = df.resample("W-FRI").last().dropna(how="all")
-    print("Shape (weekly):", weekly.shape)
-    weekly.tail(3)
+    import pandas as pd
+    from .prices import read_prices
+    df = read_prices(INPUT_CSV)
+    weekly = df.resample("W-FRI").last()
+    if weekly.empty:
+        raise ValueError("Aucune observation hebdomadaire exploitable")
 
     # Cellule historique 8
 
@@ -126,13 +111,12 @@ def run_snapshot(input_csv: str | Path, output_dir: str | Path, window_weeks=DEF
 
     details_rows = []
     for asset in weekly.columns:
-        s = weekly[asset].dropna()
-        if len(s) < max(WINDOW_WEEKS):
+        if len(weekly) < min(WINDOW_WEEKS):
             continue
-
         for w in WINDOW_WEEKS:
-            window = s.iloc[-w:]
-            if len(window) < w:
+            window = weekly[asset].iloc[-w:]
+            # Une fenetre doit contenir exactement w semaines successives valides.
+            if len(window) != w or window.isna().any():
                 continue
 
             y = np.log(window.values.astype(float))
@@ -182,7 +166,14 @@ def run_snapshot(input_csv: str | Path, output_dir: str | Path, window_weeks=DEF
     ], axis=1).reset_index()
 
     valid_cols = [c for c in wide.columns if c.startswith("is_valid_")]
-    wide["valid_frac"] = wide[valid_cols].mean(axis=1)
+    # Denominateur = toutes les fenetres choisies, y compris les lacunes.
+    validity = pd.DataFrame(index=wide.index)
+    for w in WINDOW_WEEKS:
+        col = f"is_valid_{w}w"
+        validity[w] = (wide[col].map(lambda v: bool(v) if pd.notna(v) else False)
+                       if col in wide.columns else False)
+    validity = validity.astype(float)
+    wide["valid_frac"] = validity.sum(axis=1) / len(WINDOW_WEEKS)
 
     # Médiane de tc sur fenêtres valides
     tc_cols = {int(c.split("_")[2].replace("w","")): c for c in valid_cols}
@@ -295,25 +286,28 @@ def run_snapshot(input_csv: str | Path, output_dir: str | Path, window_weeks=DEF
     # Cellule historique 20
 
     # Volatilité hebdo (52 semaines) et inverse-vol pour pondération simple
-    rets = weekly.pct_change()
+    rets = weekly.pct_change(fill_method=None)
     vol_52 = rets.tail(52).std(skipna=True)
     inv_vol = (1 / vol_52.replace(0, np.nan)).replace([np.inf, -np.inf], np.nan)
 
     bt = bubble_type.set_index("asset")
+    # Un actif dont les 104 dernieres semaines sont incompletes ne peut etre detenu.
+    complete = weekly.columns[
+        weekly.tail(max(WINDOW_WEEKS)).notna().all() & (weekly.iloc[-1] > 0)
+    ]
+    eligible_long = bt.index[bt["bubble_multiscale_state"] != "COHERENT_MULTI_UP"].intersection(complete, sort=False)
+    w_long = inv_vol.reindex(eligible_long).fillna(0).clip(lower=0)
+    w_long = w_long / w_long.sum() if w_long.sum() > 0 else w_long
 
-    eligible_long = bt[bt["bubble_multiscale_state"] != "COHERENT_MULTI_UP"].index
-    w_long = inv_vol.reindex(eligible_long).fillna(inv_vol.median()).clip(lower=0)
-    w_long = w_long / w_long.sum()
-
-    short_assets = bt[bt["bubble_multiscale_state"] == "COHERENT_MULTI_UP"].index
+    short_assets = bt.index[bt["bubble_multiscale_state"] == "COHERENT_MULTI_UP"].intersection(complete, sort=False)
     w_short = bt.loc[short_assets, "priority_score"].clip(lower=0)
     w_short = (w_short / w_short.sum()) if (len(w_short) > 0 and w_short.sum() > 0) else pd.Series(dtype=float)
 
-    w_long_ls = inv_vol.reindex(eligible_long).fillna(inv_vol.median()).clip(lower=0)
+    w_long_ls = inv_vol.reindex(eligible_long).fillna(0).clip(lower=0)
     w_long_ls = (w_long_ls / w_long_ls.sum()) if w_long_ls.sum() > 0 else w_long_ls
 
-    gross_long = 1.0 if len(w_short) == 0 else 0.5
-    gross_short = 0.0 if len(w_short) == 0 else 0.5
+    gross_long = 1.0 if w_short.empty else 0.5
+    gross_short = 0.0 if w_short.empty else 0.5
 
     def rationale(state):
         if state == "COHERENT_MULTI_UP":

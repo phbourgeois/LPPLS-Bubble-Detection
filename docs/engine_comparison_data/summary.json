@@ -1,0 +1,39 @@
+{
+  "date": "2026-11-04",
+  "scope": "synthetic prices only",
+  "example": {
+    "assets": 2,
+    "weeks": 164,
+    "fits": 14,
+    "matching_fits": 14,
+    "matching_states": 2
+  },
+  "controlled": {
+    "assets": 6,
+    "weeks": 156,
+    "fits": 42,
+    "matching_fits": 42,
+    "matching_states": 6
+  },
+  "backtest": {
+    "start": "2024-02-02",
+    "end": "2024-05-24",
+    "rebalance_weeks": 4,
+    "rebalances": 4,
+    "fee_bps": 15,
+    "final_nav_current_long_only": 0.9179341002079952,
+    "final_nav_research_long_only": 0.9159868785699624,
+    "final_nav_current_long_short": 0.8924004395097449,
+    "final_nav_research_long_short": 0.8920260293953296,
+    "research_net_return_nav_mismatch_weeks": 3
+  },
+  "null": {
+    "random_walks": 40,
+    "accepted_fits": 40,
+    "up": 23,
+    "down": 17,
+    "median_r2": 0.8153729287378132
+  },
+  "reference": "src/lppls_bubble",
+  "scientific_validation": "not established"
+}

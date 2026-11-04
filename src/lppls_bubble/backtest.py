@@ -37,23 +37,9 @@ class BacktestSettings:
 
 
 def load_weekly(input_csv: str | Path) -> pd.DataFrame:
-    """Charge le format historique SBF120 : 3 lignes meta, puis Name;actifs."""
-    source = pd.read_csv(input_csv, sep=";", skiprows=3, encoding="utf-8")
-    if source.shape[1] < 2:
-        raise ValueError("CSV historique attendu : Name;Actif1;Actif2;...")
-    date_col = source.columns[0]
-    source[date_col] = pd.to_datetime(source[date_col], dayfirst=True, errors="coerce")
-    source = source.dropna(subset=[date_col]).sort_values(date_col)
-    if source.empty:
-        raise ValueError("Aucune date valide dans le CSV")
-    source = source.drop_duplicates(subset=[date_col], keep="last").set_index(date_col)
-    for name in source.columns:
-        source[name] = pd.to_numeric(source[name].astype(str).str.replace(",", ".", regex=False), errors="coerce")
-        source.loc[source[name] <= 0, name] = np.nan
-    weekly = source.resample("W-FRI").last().dropna(how="all")
-    if weekly.empty:
-        raise ValueError("Aucun cours positif exploitable")
-    return weekly
+    """Lecture partagee avec le snapshot : CSV standard ou Datastream."""
+    from .prices import weekly_prices
+    return weekly_prices(input_csv)
 
 
 def fit_tiny(log_prices: np.ndarray) -> dict:

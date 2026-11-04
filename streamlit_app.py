@@ -7,13 +7,13 @@ from pathlib import Path
 import streamlit as st
 
 sys.path.insert(0, str(Path(__file__).resolve().parent / "src"))
-from lppls_bubble import DEFAULT_WINDOWS, run_snapshot, BacktestSettings, run_backtest
+from lppls_bubble import DEFAULT_WINDOWS, run_snapshot, BacktestSettings, run_backtest, REFERENCE_ENGINE
 from lppls_bubble.reports import make_html, make_pdf
 
 st.set_page_config(page_title="LPPLS Bubble Detection", page_icon="📉", layout="wide")
 st.title("LPPLS - Detection de bulles multi-echelles")
-st.caption("Snapshot historique Colab et backtest experimental corrige, distingue de la version historique archivee.")
-st.warning("Les signaux LPPLS sont exploratoires : ils ne sont pas des probabilites fiables de retournement.")
+st.caption(f"Moteur de reference : {REFERENCE_ENGINE} (snapshot et backtest) ; variante de recherche conservee.")
+st.warning("Filtre exploratoire non valide : sur 40 marches aleatoires simulees, 40 fits ont passe les filtres heuristiques. Ne pas utiliser comme signal de trading autonome.")
 
 @st.cache_data(show_spinner="Calcul LPPLS en cours...")
 def calculate(payload: bytes, windows: tuple[int, ...]):
