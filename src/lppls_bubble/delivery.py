@@ -14,6 +14,7 @@ README = """# Livrables LPPLS — archive de l'exécution Streamlit
 Cette archive contient les fichiers réellement produits pendant une même exécution.
 
 - donnees/source.csv : fichier de prix original fourni à l'application ;
+- donnees/quality_events.csv : registre fourni pour les blocages, le cas échéant ;
 - lppls/ : estimations, classifications, pondérations instantanées, heatmap,
   rapport HTML et rapport PDF ;
 - backtest/ : NAV hebdomadaires, performances, poids, états LPPLS,
@@ -45,6 +46,7 @@ def build_delivery_zip(
     *,
     source_csv: bytes | None = None,
     source_name: str | None = None,
+    event_register_csv: bytes | None = None,
     parameters: Mapping[str, object] | None = None,
     run_status: Mapping[str, str] | None = None,
 ) -> bytes:
@@ -57,6 +59,8 @@ def build_delivery_zip(
         raise ValueError("L'archive doit contenir au moins un livrable LPPLS")
     if source_csv is not None and not isinstance(source_csv, bytes):
         raise TypeError("source_csv doit être bytes")
+    if event_register_csv is not None and not isinstance(event_register_csv, bytes):
+        raise TypeError("event_register_csv doit être bytes")
 
     files: dict[str, bytes] = {}
     for folder, mapping in (
@@ -69,6 +73,8 @@ def build_delivery_zip(
             files[f"{folder}/{name}"] = data
     if source_csv is not None:
         files["donnees/source.csv"] = source_csv
+    if event_register_csv is not None:
+        files["donnees/quality_events.csv"] = event_register_csv
 
     # Insertion-order-independent manifest and ZIP, facilitating comparisons.
     entries = [
