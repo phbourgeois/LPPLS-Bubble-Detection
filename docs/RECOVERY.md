@@ -8,16 +8,18 @@ Date : 2026-11-04.
 - `Copie de ds_lppls_pipeline.ipynb` : copie dans Drive, meme code des cellules, meta-donnees differentes ; non republiee pour eviter un doublon.
 - Le code numerique de `legacy_engine.py` reprend les cellules 4, 6, 8, 10, 12, 14, 16, 18 et 20 de l'original : enveloppe de fonction ajoutee et garde explicite si aucune serie eligible.
 
-## Historiquement produits, fichier source non recupere
+## Historiquement produits : etat apres recuperation du ZIP du 4 novembre 2026
 
-- `ds_lppls_pipeline_executed.ipynb` ; `lppls_livrables.zip`.
-- `ds_lppls_pipeline_with_backtest.ipynb`.
-- `ds_lppls_pipeline_with_backtest_named.ipynb` (correction du header `skiprows=3`).
+- `ds_lppls_pipeline_executed.ipynb` : **RECUPERE** depuis `lppls_notebooks_3_versions.zip` ; selon son README, **reconstruction NON EXECUTEE**, sans outputs ; ne pas confondre avec une execution d'origine.
+- `ds_lppls_pipeline_with_backtest.ipynb` : **RECUPERE** ; appendice de presentation mais pas de moteur de backtest executable.
+- `ds_lppls_pipeline_with_backtest_named.ipynb` : **RECUPERE** ; annexe de code de backtest reel, mais pas d'execution validee ; `skiprows=3` pour noms des actions.
 - `lppls_backtest_named_notebook_and_outputs.zip` et `lppls_backtest_named_assets.zip`.
 - `Rapport_backtest_LPPLS_SBF120.docx`.
 - CSV historiques de NAV, positions, turnover, scenarios Long-only.
 
-Ces developpements ont ete decrits/livres dans des chats du 27 fevrier 2026 mais ne sont pas disponibles dans le dossier Drive Colab Notebooks audite. Ne pas les reconstituer en les presentant comme code original.
+Les 3 fichiers ci-dessus proviennent de l'archive fournie au projet le 4 novembre 2026. Ils sont conserves SANS modification des cellules sous `notebooks/`, avec `README_ARCHIVE.txt` et les empreintes SHA256 dans `docs/BACKTEST_AUDIT.md`. Les autres archives/CSV sont encore non recuperes.
+
+Le moteur `src/lppls_bubble/backtest.py` est une **adaptation corrigee**, pas un fichier historique : exclusion du look-ahead d'eligibilite et rebalancement effectif des poids. Les valeurs produites ne doivent donc pas etre presentees comme une reproduction identique des backtests passes.
 
 ## Limitations et risques
 

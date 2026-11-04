@@ -7,7 +7,8 @@ Application Streamlit de detection exploratoire de bulles financieres par ajuste
 - **Code historique retrouve** : notebook Colab `notebooks/ds_lppls_pipeline.ipynb` (27 fevrier 2026).
 - **Moteur migre** : `src/lppls_bubble/legacy_engine.py` encapsule **sans remplacer les calculs** des cellules du notebook pour fournir les estimations aux 7 horizons hebdomadaires 13, 26, 39, 52, 65, 78, 104.
 - **Interface initiale** : chargement du CSV SBF120 historique, selection des fenetres, tableaux, heatmap, graphique des cours, exports CSV/PNG/HTML/PDF.
-- **Pas encore recuperes** : notebooks historiques du backtesting et sorties du 27/02/2026, dont `ds_lppls_pipeline_with_backtest_named.ipynb`.
+- **Notebooks du backtest recuperes** depuis l'archive du projet : 3 versions sous `notebooks/`, dont une reconstruction NON EXECUTEE et une version `named` avec code de backtest. Voir `docs/BACKTEST_AUDIT.md`.
+- **Backtest experimental integre** : moteur `src/lppls_bubble/backtest.py` avec selection causale et suivi des portefeuilles. Ce moteur corrige des biais du notebook source ; les resultats historiques ne sont PAS reproduits a l'identique.
 - **Non valide scientifiquement** : signaux LPPLS heuristiques du notebook ; aucune inference de probabilite ni signal de trading certifie.
 
 ## Execution locale
@@ -31,4 +32,4 @@ Les tests s'executent localement. **Aucun workflow GitHub Actions n'est fourni**
 
 ## Provenance et limites
 
-Voir [docs/RECOVERY.md](docs/RECOVERY.md). Une application disponible ne signifie pas que le backtesting historique a ete retrouve ou que les signaux ont une validite predictive etablie.
+Voir [docs/RECOVERY.md](docs/RECOVERY.md) et [docs/BACKTEST_AUDIT.md](docs/BACKTEST_AUDIT.md). Les notebooks historiques sont maintenant archives, mais leurs sorties d'execution ne sont pas verifiees ; aucune validite predictive n'est etablie.
