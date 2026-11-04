@@ -73,6 +73,7 @@ Voir [règles, limites et décisions en suspens](docs/QUALITY_FILTER_AND_WEIGHTI
 Après une exécution réussie de l'analyse LPPLS, l'interface présente **un seul bouton** `Télécharger les livrables LPPLS (ZIP)`. L'archive `lppls_livrables_complets.zip` est organisée en dossiers :
 
 - `donnees/source.csv` : copie du fichier d'entrée réellement analysé ;
+- `donnees/quality_events.csv` : registre des événements si fourni pour le backtest ;
 - `lppls/` : tous les exports des estimations, synthèses et rapports HTML/PDF ;
 - `backtest/` : poids, états, qualité, turnover, NAV et performances, si demandé et réussi ;
 - `statistique/` : CSV du diagnostic expérimental, s'il a été calculé ;
