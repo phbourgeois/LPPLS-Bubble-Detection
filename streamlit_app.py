@@ -185,6 +185,7 @@ if submitted:
             delivery_zip = build_delivery_zip(
                 exports, backtest_exports, statistical_exports,
                 source_csv=upload.getvalue(), source_name=upload.name,
+                event_register_csv=(bt_events.getvalue() if run_bt and bt_events is not None else None),
                 parameters=params, run_status=run_status,
             )
             st.session_state["lppls_delivery_zip"] = delivery_zip
