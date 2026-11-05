@@ -96,6 +96,118 @@ def audit_prices(path: str | Path, *, weekly_threshold: float = .50,
                              kind="stable").reset_index(drop=True)
 
 
+
+def backtest_audit_window(
+    source: str | Path, start_date: str, hold_weeks: int = 4,
+    max_rebalances: int | None = None, lookback_weeks: int = 104,
+) -> tuple[pd.Timestamp, pd.Timestamp, int]:
+    """Exactly match the existing backtest decision dates WITHOUT running LPPLS.
+
+    The final date is the last actual NAV date (possibly earlier than the
+    latest quote if max_rebalances limits the run).
+    """
+    if hold_weeks < 1 or lookback_weeks < 1 or (
+        max_rebalances is not None and max_rebalances < 1
+    ):
+        raise ValueError("Paramètres de calendrier de backtest invalides")
+    weekly = completed_weekly_prices(read_prices(source))
+    candidates = weekly.index[weekly.index >= pd.Timestamp(start_date)]
+    decisions = []
+    for date in candidates[::hold_weeks]:
+        pos = weekly.index.get_loc(date)
+        if pos >= lookback_weeks - 1 and pos < len(weekly) - 1:
+            decisions.append(date)
+        if max_rebalances is not None and len(decisions) >= max_rebalances:
+            break
+    if not decisions:
+        raise ValueError(
+            "Aucune date de décision admissible sur cette période de backtest "
+            "(historique de 104 semaines ou durée future insuffisants)."
+        )
+    end_pos = min(
+        len(weekly)-1,
+        weekly.index.get_loc(decisions[-1]) + hold_weeks,
+    )
+    return decisions[0], weekly.index[end_pos], len(decisions)
+
+
+def critical_in_backtest(
+    audit: pd.DataFrame, start: pd.Timestamp, end: pd.Timestamp
+) -> pd.DataFrame:
+    """Only flag critical observations inside the *real* backtest NAV window."""
+    if audit.empty:
+        return audit.copy()
+    dates = pd.to_datetime(audit["date"], errors="coerce")
+    mask = (audit["severity"].eq("CRITICAL")
+            & dates.ge(pd.Timestamp(start)) & dates.le(pd.Timestamp(end)))
+    return audit.loc[mask].copy().reset_index(drop=True)
+
+
+def critical_by_title(merged: pd.DataFrame) -> pd.DataFrame:
+    """One selectable row per asset; all individual anomalies remain inspectable."""
+    columns = ["asset", "n_critical", "first_date", "last_date",
+               "max_abs_return_pct", "exclude_backtest", "reason"]
+    rows = []
+    for asset, group in merged.groupby("asset", sort=True):
+        prior_exclusion = group.loc[group.action.isin(
+            ("EXCLUDE_BACKTEST_RETRO", "EXCLUDE_ASSET_RETRO")
+        )]
+        selected = not prior_exclusion.empty
+        reason = (str(prior_exclusion.reason.iloc[0])
+                  if selected else "")
+        rows.append({
+            "asset": asset, "n_critical": len(group),
+            "first_date": group.date.min(), "last_date": group.date.max(),
+            "max_abs_return_pct": float(group.return_pct.abs().max()),
+            "exclude_backtest": selected, "reason": reason,
+        })
+    return pd.DataFrame(rows, columns=columns)
+
+
+def apply_title_decisions(
+    merged: pd.DataFrame, title_choices: pd.DataFrame
+) -> pd.DataFrame:
+    """Checkbox excludes entire title, not any individual price observation.
+
+    Each critical event still has its own record and fingerprint, so legacy
+    decision registers can be re-imported without replacing historical quotes.
+    """
+    result = merged.copy()
+    if result.empty:
+        return result
+    if title_choices.asset.duplicated().any():
+        raise ValueError("Un même titre figure plusieurs fois dans le tableau")
+    if set(title_choices.asset) != set(result.asset):
+        raise ValueError("Le tableau des titres ne couvre pas les anomalies critiques")
+    choice = title_choices.set_index("asset")
+    excluded = set(choice.index[choice.exclude_backtest.astype(bool)])
+    # Preserve previously validated KEEP and documented as-of decisions.
+    # Only lift existing retrospective exclusions when the user unchecks a
+    # title; this is essential for backward compatibility with saved CSVs.
+    old_exclusions = result.action.isin(
+        ("EXCLUDE_BACKTEST_RETRO", "EXCLUDE_ASSET_RETRO")
+    )
+    removed = old_exclusions & ~result.asset.isin(excluded)
+    result.loc[removed, "action"] = "REVIEW"
+    result.loc[removed, ["reason", "evidence", "published_at"]] = ""
+    for asset in excluded:
+        reason = str(choice.at[asset, "reason"]).strip()
+        if not reason:
+            reason = "Exclusion rétrospective du titre du backtest après revue des anomalies critiques"
+        mask = result.asset.eq(asset)
+        # Keep a previously explicit global exclusion unless user unchecks
+        # the title. New checkbox selections are backtest-only by default.
+        global_prior = mask & result.action.eq("EXCLUDE_ASSET_RETRO")
+        result.loc[mask & ~global_prior, "action"] = "EXCLUDE_BACKTEST_RETRO"
+        result.loc[mask, "reason"] = reason
+        if "compatibility" in result:
+            # A freshly ticked asset is an explicit new user decision on the
+            # observed prices, not automatic reuse of an old changed fingerprint.
+            result.loc[mask & result.compatibility.eq("CHANGED_PRICE_REVIEW"),
+                       "compatibility"] = "REVALIDATED"
+    return result
+
+
 def classify_uploaded_registry(payload: bytes) -> str:
     """Distinguish reusable review decisions from dated BLOCK/RELEASE ledgers.
 

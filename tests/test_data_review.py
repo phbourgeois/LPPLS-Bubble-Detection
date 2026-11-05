@@ -11,6 +11,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 from lppls_bubble.data_review import (
     ACTIONS, FIELDS, audit_prices, read_decisions,
     merge_previous_decisions, validate_and_apply, classify_uploaded_registry,
+    backtest_audit_window, critical_in_backtest, critical_by_title,
+    apply_title_decisions,
 )
 from lppls_bubble.prices import read_prices
 
@@ -176,3 +178,89 @@ def test_uploaded_registry_formats_are_recognised_and_not_interchangeable():
         classify_uploaded_registry(b"asset,action\nATOS,BLOCK\n")
     with pytest.raises(ValueError, match="vide"):
         classify_uploaded_registry(b"")
+
+
+def test_critical_alerts_only_between_real_backtest_dates(tmp_path):
+    dates = pd.date_range("2023-01-06", periods=140, freq="W-FRI")
+    a = np.linspace(90.0, 110.0, len(dates))
+    b = np.linspace(60.0, 80.0, len(dates))
+    a[90] *= 6.0        # Before the requested backtest start; must NOT appear
+    a[91] = a[89]      # Reset earlier shock
+    a[109] *= 8.0      # Inside the first 4-week holding period
+    a[110] = a[108]
+    a[130] *= 10.0     # After the two allowed rebalances; must NOT appear
+    path = tmp_path / "prices.csv"
+    pd.DataFrame({"Date": dates.strftime("%Y-%m-%d"), "A": a, "B": b}).to_csv(
+        path, index=False, sep=";"
+    )
+    first, last, decisions = backtest_audit_window(
+        path, "2025-01-17", hold_weeks=4, max_rebalances=2,
+    )
+    # 2025-01-17 is weekly observation index 106.
+    assert first == dates[106]
+    assert last == dates[114]
+    assert decisions == 2
+    critical = critical_in_backtest(audit_prices(path, stale_weeks=30), first, last)
+    assert len(critical) > 0
+    critical_dates = pd.to_datetime(critical.date)
+    assert critical_dates.between(first, last).all()
+    assert not (critical_dates == dates[90]).any()
+    assert not (critical_dates == dates[130]).any()
+
+
+def test_one_checkbox_controls_all_critical_dates_of_same_title(tmp_path):
+    source = sample_csv(tmp_path / "source.csv")
+    events = audit_prices(source, stale_weeks=30)
+    critical = events.loc[
+        (events.asset == "A") & (events.severity == "CRITICAL")
+    ].copy().reset_index(drop=True)
+    assert len(critical) >= 1
+    # Add a second critical event to the same asset (not a second title row).
+    repeated = critical.iloc[[0]].copy()
+    repeated.loc[:, "event_id"] = "different-second-date-identity"
+    repeated.loc[:, "date"] = "2024-04-05"
+    critical = pd.concat([critical, repeated], ignore_index=True)
+    critical["compatibility"] = "NEW"
+    titles = critical_by_title(critical)
+    assert len(titles) == 1
+    assert titles.n_critical.iloc[0] == len(critical)
+    assert titles.asset.iloc[0] == "A"
+    titles.loc[0, "exclude_backtest"] = True
+    chosen = apply_title_decisions(critical, titles)
+    assert set(chosen.action) == {"EXCLUDE_BACKTEST_RETRO"}
+    assert len(chosen) == len(critical)
+    assert chosen.reason.str.len().gt(0).all()
+    titles.loc[0, "exclude_backtest"] = False
+    reverted = apply_title_decisions(chosen, titles)
+    assert set(reverted.action) == {"REVIEW"}
+
+
+def test_regenerated_registry_reuses_title_exclusion(tmp_path):
+    source = sample_csv(tmp_path / "source.csv")
+    audit = audit_prices(source, stale_weeks=30)
+    crit = critical_in_backtest(audit, pd.Timestamp("2024-01-05"),
+                                pd.Timestamp("2024-05-31"))
+    assert not crit.empty
+    crit["compatibility"] = "NEW"
+    titled = critical_by_title(crit)
+    titled.loc[titled.asset == "A", "exclude_backtest"] = True
+    resolved = apply_title_decisions(crit, titled)
+    prior = read_decisions(resolved[FIELDS].to_csv(index=False).encode("utf-8"))
+    replayed, orphans = merge_previous_decisions(crit, prior)
+    assert orphans.empty
+    new_titles = critical_by_title(replayed)
+    assert new_titles.loc[new_titles.asset == "A", "exclude_backtest"].all()
+
+
+def test_old_keep_decisions_are_preserved_by_title_checkbox(tmp_path):
+    source = sample_csv(tmp_path / "source.csv")
+    alerts = audit_prices(source, stale_weeks=30)
+    critical = alerts.loc[alerts.severity.eq("CRITICAL")].copy().reset_index(drop=True)
+    critical["compatibility"] = "MATCH"
+    critical.loc[critical.index[0], "action"] = "KEEP"
+    critical.loc[critical.index[0], "reason"] = "Verified legitimate movement"
+    titles = critical_by_title(critical)
+    assert not titles.exclude_backtest.any()
+    selected = apply_title_decisions(critical, titles)
+    assert selected.action.iloc[0] == "KEEP"
+    assert selected.reason.iloc[0] == "Verified legitimate movement"
