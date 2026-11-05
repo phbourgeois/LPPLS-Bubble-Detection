@@ -46,7 +46,8 @@ def calculate(payload: bytes, windows: tuple[int, ...]):
 @st.cache_data(show_spinner="Backtest historique exploratoire en cours (grille LPPLS)...")
 def calculate_backtest(payload: bytes, windows: tuple[int, ...], start_date: str,
                        hold_weeks: int, max_rebalances: int | None, fee_bps: float,
-                       quality_policy: str, event_payload: bytes | None):
+                       quality_policy: str, event_payload: bytes | None,
+                       report_context: dict | None = None):
     with tempfile.TemporaryDirectory(prefix="lppls_bt_") as folder:
         root = Path(folder)
         input_csv = root / "uploaded.csv"
@@ -58,12 +59,14 @@ def calculate_backtest(payload: bytes, windows: tuple[int, ...], start_date: str
         if event_payload is not None:
             events_path = root / "quality_events.csv"
             events_path.write_bytes(event_payload)
-        result = run_backtest(input_csv, root / "backtest", config, quality_events_csv=events_path)
+        result = run_backtest(input_csv, root / "backtest", config,
+                              quality_events_csv=events_path, report_context=report_context)
         exports = {p.name: p.read_bytes() for p in sorted((root / "backtest").iterdir()) if p.is_file()}
         return (result["nav"], result["metrics"], result["states"],
                 result["weights_lo"], result["weights_ls"],
                 result["quality_history"], result["weighting_policy"],
-                result["quality_weekly_alerts"], result["reconciliation"], exports)
+                result["quality_weekly_alerts"], result["reconciliation"],
+                result["comparison"]["metrics"], result["comparison"]["nav"], exports)
 
 @st.cache_data(show_spinner="Audit des cours quotidien et hebdomadaire...")
 def calculate_price_audit(payload: bytes):
@@ -410,10 +413,19 @@ if submitted:
                 st.subheader("Backtest exploratoire : validation scientifique en cours")
                 st.info("Les notebooks d'origine sont archives dans le depot. Le nouveau backtest exclut la selection avec cours futurs et suit les poids qui derivent entre rebalancements ; il est donc DIFFERENT de l'ancien backtest.")
                 try:
-                    bt_nav, bt_metrics, bt_states, bt_lo, bt_ls, bt_quality_history, bt_weighting_policy, bt_weekly_alerts, bt_reconciliation, bt_exports = calculate_backtest(
+                    bt_nav, bt_metrics, bt_states, bt_lo, bt_ls, bt_quality_history, bt_weighting_policy, bt_weekly_alerts, bt_reconciliation, bt_comparison_metrics, bt_comparison_nav, bt_exports = calculate_backtest(
                         backtest_payload, tuple(sorted(selected)), bt_start.isoformat(),
                         int(bt_hold), int(bt_periods) if bt_periods is not None else None, float(bt_fees),
-                        effective_quality_policy, event_payload)
+                        effective_quality_policy, event_payload,
+                        report_context={
+                            "study_type": study_type,
+                            "source_asset_count": int(len(weekly.columns) +
+                                len(retro_exclusions.loc[retro_exclusions.scope == "SNAPSHOT_AND_BACKTEST"])),
+                            "snapshot_assets": int(len(weekly.columns)),
+                            "backtest_assets": int(len(weekly.columns) -
+                                len(retro_exclusions.loc[retro_exclusions.scope == "BACKTEST_ONLY"])),
+                            "excluded_assets": retro_exclusions.to_dict("records"),
+                        })
                 except Exception as exc:
                     run_status["backtest"] = "error: " + str(exc)
                     st.error(f"Backtest impossible : {exc}")
@@ -425,6 +437,11 @@ if submitted:
                         f"— {int(bt_metrics.num_rebalances.iloc[0])} décisions."
                     )
                     st.dataframe(bt_metrics, use_container_width=True, hide_index=True)
+                    st.subheader("Comparaison des stratégies et benchmark")
+                    st.dataframe(bt_comparison_metrics, use_container_width=True, hide_index=True)
+                    st.line_chart(bt_comparison_nav.set_index("date")[
+                        [c for c in bt_comparison_nav.columns if c.startswith("nav_")]
+                    ], use_container_width=True)
                     critical_count = int((bt_weekly_alerts["severity"] == "CRITICAL_REVIEW").sum())
                     if critical_count:
                         st.warning(
