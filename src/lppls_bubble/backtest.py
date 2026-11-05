@@ -174,7 +174,7 @@ def _metrics(nav: pd.DataFrame, turnover: pd.DataFrame, config: BacktestSettings
         result["sharpe_" + key + "_weekly"] = float(r.mean() / sd * np.sqrt(52)) if len(r) > 1 and sd > 0 else np.nan
         result["turnover_mean_" + key] = float(turnover[to_col].mean())
         n = len(r)
-        result["annualized_return_" + key] = float((s.iloc[-1] / s.iloc[0]) ** (52 / n) - 1) if n > 0 and s.iloc[0] > 0 else np.nan
+        result["annualized_return_" + key] = float(s.iloc[-1] ** (52 / n) - 1) if n > 0 and s.iloc[-1] > 0 else np.nan
         result["annualized_volatility_" + key] = float(sd * np.sqrt(52)) if n > 1 else np.nan
         result["sharpe_" + key] = result["sharpe_" + key + "_weekly"]
     return pd.DataFrame([result])
