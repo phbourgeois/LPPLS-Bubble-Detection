@@ -26,7 +26,7 @@ img{{max-width:100%;height:auto}}table{{border-collapse:collapse;display:block;o
 .data th,.data td{{border:1px solid #cbd5df;padding:7px 10px;text-align:right;white-space:nowrap}}
 .data th:first-child,.data td:first-child{{text-align:left}}.data tr:nth-child(even){{background:#f6f9fc}}
 </style></head><body><h1>LPPLS - Analyse multi-echelles</h1>
-<p class="notice">Modele historique de grille rapide du notebook Colab (27/02/2026).
+<p class="notice">Grille approfondie LPPLS commune au snapshot et au backtest (343 combinaisons).
 Les signaux ne constituent ni des probabilites de crise ni des recommandations d'investissement.
 Backtesting historique non inclus dans cette version.</p>
 <p>Actifs analyses : {len(bubble)} | Fenetres : {result['details']['window_weeks'].nunique()}</p>
@@ -47,7 +47,7 @@ def make_pdf(result: dict) -> bytes:
     doc = SimpleDocTemplate(buf, pagesize=A4, rightMargin=34,leftMargin=34,topMargin=36,bottomMargin=36)
     styles = getSampleStyleSheet()
     elements=[Paragraph("LPPLS - Analyse multi-echelles", styles["Title"]),Spacer(1,10),
-       Paragraph("Modele historique de grille rapide. Les classifications ne sont pas des probabilites de retournement. Backtest non inclus.",styles["Normal"]),Spacer(1,14)]
+       Paragraph("Grille LPPLS approfondie commune au snapshot et au backtest (343 combinaisons). Les classifications ne sont pas des probabilites de retournement. Backtest non inclus dans ce rapport.",styles["Normal"]),Spacer(1,14)]
     bubble=result["bubble_type"]
     elements.append(Paragraph(f"Actifs analyses : {len(bubble)}",styles["Heading2"]))
     cols=["asset","bubble_multiscale_state","priority_score"]
