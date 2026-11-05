@@ -97,3 +97,15 @@ Voir [protocole et limites de cette mise à jour](docs/BACKTEST_DATA_QUALITY_REP
 Les deux moteurs opérationnels (photographie LPPLS et historique du backtest) utilisent désormais **exactement la même grille approfondie de 343 combinaisons**. Le calcul est mutualisé et vectorisé avec mise en cache des matrices, sans retour à une grille simplifiée. Le fichier `manifest.json` du ZIP et `backtest_summary_metrics.csv` identifient la version de la grille. Les anciens backtests calculés sur 27 combinaisons ne sont pas comparables sans recalcul.
 
 Voir [méthode et tests de concordance](docs/UNIFIED_FULL_GRID_2026_11_05.md).
+
+
+## Validation des données en deux étapes (5 novembre 2026)
+
+1. **Audit immédiat au chargement du CSV :** variations quotidiennes/hebdomadaires extrêmes, séries stagnantes et plages hebdomadaires manquantes à l'intérieur d'une cotation. Les cours antérieurs et courants, les variations en %, les dates et les titres sont affichés.
+2. **Décision explicite :** conserver, laisser à examiner, exclure un titre entier à titre de sensibilité rétrospective ou bloquer les nouvelles positions à partir d'une publication datée. Un CSV `data_quality_decisions.csv` est téléchargeable et rechargeable à la prochaine mise à jour. Les décisions incompatibles avec les nouveaux cours ne sont pas réappliquées.
+3. **Analyse LPPLS et backtest :** utilisent le même fichier validé, avec la grille approfondie unique de 343 combinaisons. En cas d'exclusion rétrospective, **tout le titre** est retiré des estimations et du backtest, avec un avertissement explicite. Un événement daté n'empêche pas les pertes déjà subies ni ne liquide instantanément une position.
+4. **ZIP unique :** le dossier `audit/` contient anomalies, décisions, exclusions, événements historiques non reconnus et **CSV effectivement analysé**, tandis que `donnees/source.csv` conserve les octets du fichier original. Un ZIP ancien n'est plus présenté comme actuel après changement des paramètres ou décisions.
+
+Ce premier périmètre **ne supprime pas les cours individuels** : cette opération demanderait de définir une convention de rendement et de liquidation pour éviter de déplacer artificiellement les chocs entre semaines. Les corrections de cours et la certification d'opérations sur titres restent externes à ce filtre.
+
+Documentation et recette : [docs/TWO_STAGE_DATA_REVIEW_2026_11_05.md](docs/TWO_STAGE_DATA_REVIEW_2026_11_05.md). Aucun workflow GitHub Actions n'a été ajouté.
