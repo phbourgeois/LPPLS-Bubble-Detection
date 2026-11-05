@@ -15,7 +15,7 @@ import pandas as pd
 
 from .prices import read_prices, completed_weekly_prices
 
-ACTIONS = ("REVIEW", "KEEP", "EXCLUDE_ASSET_RETRO", "BLOCK_ASOF")
+ACTIONS = ("REVIEW", "KEEP", "EXCLUDE_BACKTEST_RETRO", "EXCLUDE_ASSET_RETRO", "BLOCK_ASOF")
 FIELDS = ["event_id", "asset", "date", "frequency", "kind", "previous_price",
           "observed_price", "return_pct", "gap_weeks", "severity", "price_fingerprint",
           "action", "reason", "evidence", "published_at"]
@@ -141,11 +141,13 @@ def merge_previous_decisions(audit: pd.DataFrame, previous: pd.DataFrame | None
 
 
 def validate_and_apply(audit_decisions: pd.DataFrame, source: str | Path
-                       ) -> tuple[pd.DataFrame, bytes, bytes | None, pd.DataFrame, str]:
+                       ) -> tuple[pd.DataFrame, bytes, bytes, bytes | None, pd.DataFrame, str]:
     """Produce same-history research data and optional as-of events.
 
-    EXCLUDE_ASSET_RETRO removes a full stock from snapshot AND backtest and
-    labels the run RETROSPECTIVE_SENSITIVITY. BLOCK_ASOF preserves historical
+    EXCLUDE_BACKTEST_RETRO removes the stock from the backtest universe only,
+    keeping it available to LPPLS snapshot diagnostics. EXCLUDE_ASSET_RETRO
+    removes it from both snapshot and backtest; both label the run RETROSPECTIVE_SENSITIVITY.
+    BLOCK_ASOF preserves historical
     prices but blocks future targets after its documented publication date.
     Never delete an isolated quote, forward-fill or zero an extreme return.
     """
@@ -177,23 +179,34 @@ def validate_and_apply(audit_decisions: pd.DataFrame, source: str | Path
         event_payload = events.drop_duplicates().to_csv(index=False).encode("utf-8")
     else:
         event_payload = None
-    retro = sorted(set(df.loc[df.action.eq("EXCLUDE_ASSET_RETRO"), "asset"]))
+    global_excluded = sorted(set(df.loc[df.action.eq("EXCLUDE_ASSET_RETRO"), "asset"]))
+    backtest_only = sorted(set(df.loc[df.action.eq("EXCLUDE_BACKTEST_RETRO"), "asset"])
+                           - set(global_excluded))
+    all_backtest_excluded = sorted(set(global_excluded) | set(backtest_only))
     prices = read_prices(source)
-    invalid = set(retro) - set(prices.columns)
-    if invalid:
-        raise ValueError("Titres inconnus : " + ", ".join(sorted(invalid)))
-    if len(retro) >= len(prices.columns):
-        raise ValueError("L'exclusion retirerait tous les titres")
-    if retro:
-        kept = prices.drop(columns=retro)
+    unknown = set(all_backtest_excluded) - set(prices.columns)
+    if unknown:
+        raise ValueError("Titres inconnus : " + ", ".join(sorted(unknown)))
+    if len(global_excluded) >= len(prices.columns) or len(all_backtest_excluded) >= len(prices.columns):
+        raise ValueError("L'exclusion retirerait tous les titres de l'une des analyses")
+
+    def without_assets(excluded: list[str]) -> bytes:
+        if not excluded:
+            return Path(source).read_bytes()
+        kept = prices.drop(columns=excluded)
         csv_frame = kept.copy()
         csv_frame.insert(0, "Date", kept.index.strftime("%Y-%m-%d"))
-        analysis_payload = csv_frame.to_csv(index=False, sep=";").encode("utf-8")
-    else:
-        # Avoid even round-trip numerical changes when no exclusion is approved.
-        analysis_payload = Path(source).read_bytes()
-    exclusions = pd.DataFrame({"asset": retro, "scope": "FULL_HISTORY",
-                               "classification": "RETROSPECTIVE_SENSITIVITY"})
-    study_type = "RETROSPECTIVE_SENSITIVITY" if retro else (
+        return csv_frame.to_csv(index=False, sep=";").encode("utf-8")
+
+    snapshot_payload = without_assets(global_excluded)
+    backtest_payload = without_assets(all_backtest_excluded)
+    exclusions = pd.DataFrame(
+        [{"asset": asset, "scope": "SNAPSHOT_AND_BACKTEST",
+          "classification": "RETROSPECTIVE_SENSITIVITY"} for asset in global_excluded]
+        + [{"asset": asset, "scope": "BACKTEST_ONLY",
+            "classification": "RETROSPECTIVE_SENSITIVITY"} for asset in backtest_only],
+        columns=["asset", "scope", "classification"],
+    )
+    study_type = "RETROSPECTIVE_SENSITIVITY" if len(all_backtest_excluded) else (
         "DOCUMENTED_ASOF_CLAIM_UNVERIFIED" if len(asof) else "UNMODIFIED_PRICES_AUDIT")
-    return df, analysis_payload, event_payload, exclusions, study_type
+    return df, snapshot_payload, backtest_payload, event_payload, exclusions, study_type
