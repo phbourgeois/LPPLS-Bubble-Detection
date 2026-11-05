@@ -145,6 +145,9 @@ def validate_and_apply(audit_decisions: pd.DataFrame, source: str | Path
         published = pd.to_datetime(asof.published_at, errors="coerce")
         if published.isna().any():
             raise ValueError("BLOCK_ASOF exige une date de publication valide")
+        observation = pd.to_datetime(asof.date, errors="coerce")
+        if observation.isna().any() or (published.reset_index(drop=True) < observation.reset_index(drop=True)).any():
+            raise ValueError("La date de publication ne peut pas précéder la date de l\'anomalie")
         events = pd.DataFrame({"asset": asof.asset,
                                "published_at": published.dt.date.astype(str),
                                "action": "BLOCK", "source": asof.evidence})
@@ -158,10 +161,14 @@ def validate_and_apply(audit_decisions: pd.DataFrame, source: str | Path
         raise ValueError("Titres inconnus : " + ", ".join(sorted(invalid)))
     if len(retro) >= len(prices.columns):
         raise ValueError("L'exclusion retirerait tous les titres")
-    kept = prices.drop(columns=retro)
-    csv_frame = kept.copy()
-    csv_frame.insert(0, "Date", kept.index.strftime("%Y-%m-%d"))
-    analysis_payload = csv_frame.to_csv(index=False, sep=";").encode("utf-8")
+    if retro:
+        kept = prices.drop(columns=retro)
+        csv_frame = kept.copy()
+        csv_frame.insert(0, "Date", kept.index.strftime("%Y-%m-%d"))
+        analysis_payload = csv_frame.to_csv(index=False, sep=";").encode("utf-8")
+    else:
+        # Avoid even round-trip numerical changes when no exclusion is approved.
+        analysis_payload = Path(source).read_bytes()
     exclusions = pd.DataFrame({"asset": retro, "scope": "FULL_HISTORY",
                                "classification": "RETROSPECTIVE_SENSITIVITY"})
     study_type = "RETROSPECTIVE_SENSITIVITY" if retro else (
