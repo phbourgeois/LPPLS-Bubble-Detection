@@ -250,3 +250,17 @@ def test_regenerated_registry_reuses_title_exclusion(tmp_path):
     assert orphans.empty
     new_titles = critical_by_title(replayed)
     assert new_titles.loc[new_titles.asset == "A", "exclude_backtest"].all()
+
+
+def test_old_keep_decisions_are_preserved_by_title_checkbox(tmp_path):
+    source = sample_csv(tmp_path / "source.csv")
+    alerts = audit_prices(source, stale_weeks=30)
+    critical = alerts.loc[alerts.severity.eq("CRITICAL")].copy().reset_index(drop=True)
+    critical["compatibility"] = "MATCH"
+    critical.loc[critical.index[0], "action"] = "KEEP"
+    critical.loc[critical.index[0], "reason"] = "Verified legitimate movement"
+    titles = critical_by_title(critical)
+    assert not titles.exclude_backtest.any()
+    selected = apply_title_decisions(critical, titles)
+    assert selected.action.iloc[0] == "KEEP"
+    assert selected.reason.iloc[0] == "Verified legitimate movement"
