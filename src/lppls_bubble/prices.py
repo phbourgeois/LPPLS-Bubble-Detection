@@ -71,8 +71,24 @@ def read_prices(path: str | Path) -> pd.DataFrame:
     return data
 
 
-def weekly_prices(path: str | Path) -> pd.DataFrame:
-    """Last observed price within each Friday-ended week; never fill gaps."""
-    # Garder aussi les semaines totalement lacunaires au milieu de la période.
-    # Les supprimer raccourcirait artificiellement les fenêtres LPPLS.
-    return read_prices(path).resample('W-FRI').last()
+def completed_weekly_prices(daily: pd.DataFrame, *, include_partial: bool = False) -> pd.DataFrame:
+    """Friday-ended closes, excluding an unfinished last week by default.
+
+    A partial latest calendar week must never be mislabeled as a completed
+    Friday in LPPLS snapshots. Historical empty weeks remain present.
+    Holiday-shortened Fridays may require an explicit include_partial override
+    after independently checking the exchange calendar.
+    """
+    if daily.empty:
+        raise ValueError("Aucun cours quotidien")
+    weekly = daily.resample("W-FRI").last()
+    last_obs = daily.index.max()
+    final_friday = weekly.index.max()
+    if not include_partial and last_obs.normalize() < final_friday.normalize():
+        weekly = weekly.iloc[:-1]
+    return weekly
+
+
+def weekly_prices(path: str | Path, *, include_partial: bool = False) -> pd.DataFrame:
+    """Weekly closes without filling gaps or labeling partial Fridays as complete."""
+    return completed_weekly_prices(read_prices(path), include_partial=include_partial)

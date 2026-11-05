@@ -36,7 +36,7 @@ def calculate(payload: bytes, windows: tuple[int, ...]):
 
 @st.cache_data(show_spinner="Backtest historique exploratoire en cours (grille LPPLS)...")
 def calculate_backtest(payload: bytes, windows: tuple[int, ...], start_date: str,
-                       hold_weeks: int, max_rebalances: int, fee_bps: float,
+                       hold_weeks: int, max_rebalances: int | None, fee_bps: float,
                        quality_policy: str, event_payload: bytes | None):
     with tempfile.TemporaryDirectory(prefix="lppls_bt_") as folder:
         root = Path(folder)
@@ -53,7 +53,8 @@ def calculate_backtest(payload: bytes, windows: tuple[int, ...], start_date: str
         exports = {p.name: p.read_bytes() for p in sorted((root / "backtest").iterdir()) if p.is_file()}
         return (result["nav"], result["metrics"], result["states"],
                 result["weights_lo"], result["weights_ls"],
-                result["quality_history"], result["weighting_policy"], exports)
+                result["quality_history"], result["weighting_policy"],
+                result["quality_weekly_alerts"], result["reconciliation"], exports)
 
 # Keep controls reactive: Streamlit forms defer checkbox changes until submit.
 # The analysis itself runs only after the explicit button click.
@@ -65,7 +66,14 @@ if run_bt:
     st.caption("Les signaux au temps t n'utilisent aucune donnee posterieure à t. La strategie est reponderee periodiquement (pas de reproduction numerique de la version notebook).")
     bt_start = st.date_input("Date de debut", value=__import__("datetime").date(2024, 2, 1))
     bt_hold = st.number_input("Periode de rebalancement (semaines)", min_value=1, max_value=26, value=4)
-    bt_periods = st.number_input("Nombre maximal de rebalancements", min_value=1, max_value=24, value=6)
+    bt_limited = st.checkbox(
+        "Limiter le nombre de rééquilibrages (sinon jusqu'à la dernière semaine complète)",
+        value=False,
+        help="Désactivé : étudier tout l'historique admissible, même si la dernière période contient moins de 4 semaines."
+    )
+    bt_periods = (st.number_input("Nombre maximal de rééquilibrages",
+                                   min_value=1, max_value=500, value=24)
+                  if bt_limited else None)
     bt_fees = st.number_input("Frais de transactions (points de base)", min_value=0.0, max_value=100.0, value=0.0)
     bt_quality = st.selectbox("Politique de qualité des cours",
                               ["audit", "block_documented"], index=0,
@@ -146,9 +154,9 @@ if submitted:
                 st.subheader("Backtest exploratoire : validation scientifique en cours")
                 st.info("Les notebooks d'origine sont archives dans le depot. Le nouveau backtest exclut la selection avec cours futurs et suit les poids qui derivent entre rebalancements ; il est donc DIFFERENT de l'ancien backtest.")
                 try:
-                    bt_nav, bt_metrics, bt_states, bt_lo, bt_ls, bt_quality_history, bt_weighting_policy, bt_exports = calculate_backtest(
+                    bt_nav, bt_metrics, bt_states, bt_lo, bt_ls, bt_quality_history, bt_weighting_policy, bt_weekly_alerts, bt_reconciliation, bt_exports = calculate_backtest(
                         upload.getvalue(), tuple(sorted(selected)), bt_start.isoformat(),
-                        int(bt_hold), int(bt_periods), float(bt_fees),
+                        int(bt_hold), int(bt_periods) if bt_periods is not None else None, float(bt_fees),
                         bt_quality, bt_events.getvalue() if bt_events is not None else None)
                 except Exception as exc:
                     run_status["backtest"] = "error: " + str(exc)
@@ -156,7 +164,22 @@ if submitted:
                 else:
                     backtest_exports = bt_exports
                     run_status["backtest"] = "success"
+                    st.caption(
+                        f"Période réelle : {bt_nav.date.iloc[0]} → {bt_nav.date.iloc[-1]} "
+                        f"— {int(bt_metrics.num_rebalances.iloc[0])} décisions."
+                    )
                     st.dataframe(bt_metrics, use_container_width=True, hide_index=True)
+                    critical_count = int((bt_weekly_alerts["severity"] == "CRITICAL_REVIEW").sum())
+                    if critical_count:
+                        st.warning(
+                            f"{critical_count} mouvements de prix critiques à vérifier sur des "
+                            "séries ajustées avant d'interpréter les performances. "
+                            "Ces mouvements n'ont pas été supprimés du backtest."
+                        )
+                    with st.expander("Qualité hebdomadaire et rapprochement des NAV"):
+                        st.dataframe(bt_weekly_alerts, use_container_width=True, hide_index=True)
+                        st.dataframe(bt_reconciliation, use_container_width=True, hide_index=True)
+                        st.caption("Les alertes de prix n'excluent aucun actif en mode audit et ne constituent pas une preuve d'erreur.")
                     with st.expander("Audit qualité causal et conventions de pondération"):
                         st.dataframe(bt_quality_history, use_container_width=True, hide_index=True)
                         st.dataframe(bt_weighting_policy, use_container_width=True, hide_index=True)
@@ -178,7 +201,7 @@ if submitted:
                 params["backtest"] = {
                     "start_date": bt_start.isoformat(),
                     "hold_weeks": int(bt_hold),
-                    "max_rebalances": int(bt_periods),
+                    "max_rebalances": int(bt_periods) if bt_periods is not None else None,
                     "fee_bps": float(bt_fees),
                     "quality_policy": bt_quality,
                     "event_register_supplied": bt_events is not None,

@@ -80,3 +80,14 @@ Après une exécution réussie de l'analyse LPPLS, l'interface présente **un se
 - `manifest.json` et `README.md` : paramètres d'exécution, statut de chaque calcul, empreintes SHA-256 des fichiers et guide de lecture.
 
 Un backtest en erreur n'est **jamais présenté comme réussi** : le ZIP conserve les autres résultats et le manifeste mentionne explicitement l'échec. Les fichiers CSV, PNG, HTML, PDF conservent leurs octets originaux dans l'archive. Ce regroupement est destiné à faciliter un audit des résultats en partageant un seul fichier, sans modification des calculs ou règles de trading.
+
+## Backtest auditable et période complète (5 novembre 2026)
+
+- Les estimations LPPLS et le backtest écartent désormais la dernière semaine `W-FRI` inachevée : le dernier cours du mardi n'est pas présenté comme la clôture du vendredi futur.
+- Dans Streamlit, par défaut, le backtest couvre **jusqu'à la dernière semaine complète** ; la limitation du nombre de rééquilibrages est devenue facultative.
+- `backtest_quality_weekly_alerts.csv` relève toutes les alertes de variation extrême et cours stagnants, **y compris entre deux rééquilibrages**, sans suppression arbitraire des rendements.
+- `backtest_attribution_weekly.csv` fournit contributions par actif, poids avant/après rendement et transactions ; `backtest_reconciliation.csv` rapproche sommes des contributions, frais et NAV.
+- `backtest_report.html` et `backtest_report.pdf` sont des **rapports de backtest autonomes**, inclus dans le ZIP en plus des rapports du modèle LPPLS.
+- Frais, périodes réelles, volatilités, rendements annualisés, Sharpe et concentrations sont désormais exportés ; stratégies, règles de pondération et statut de validation scientifique inchangés.
+
+Voir [protocole et limites de cette mise à jour](docs/BACKTEST_DATA_QUALITY_REPORTS_2026_11_05.md). Les cours de marché historiques ne sont pas certifiés ajustés ; les mouvements atypiques doivent être vérifiés auprès du fournisseur.
