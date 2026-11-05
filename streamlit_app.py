@@ -329,6 +329,19 @@ if submitted:
                 source_path.write_bytes(source_payload)
                 (_, snapshot_payload, backtest_payload, reviewed_events,
                  retro_exclusions, study_type) = validate_and_apply(reviewed, source_path)
+            excluded_report = []
+            for record in retro_exclusions.to_dict("records"):
+                related = reviewed.loc[reviewed.asset.eq(record["asset"])]
+                excluded_report.append({
+                    **record,
+                    "anomaly_dates": "; ".join(sorted(related.date.dropna().astype(str).unique())),
+                    "max_abs_anomaly_return_pct": float(related.return_pct.abs().max())
+                    if related.return_pct.notna().any() else None,
+                    "justification": "; ".join(
+                        sorted(set(related.reason.fillna("").astype(str))
+                               - {""})
+                    ),
+                })
             existing_events = legacy_event_payload if run_bt else None
             event_payload = combine_documented_events(reviewed_events, existing_events)
             effective_quality_policy = (
@@ -424,7 +437,7 @@ if submitted:
                             "snapshot_assets": int(len(weekly.columns)),
                             "backtest_assets": int(len(weekly.columns) -
                                 len(retro_exclusions.loc[retro_exclusions.scope == "BACKTEST_ONLY"])),
-                            "excluded_assets": retro_exclusions.to_dict("records"),
+                            "excluded_assets": excluded_report,
                         })
                 except Exception as exc:
                     run_status["backtest"] = "error: " + str(exc)
