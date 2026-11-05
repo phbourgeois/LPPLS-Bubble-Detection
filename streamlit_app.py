@@ -493,6 +493,15 @@ if submitted:
                 "data_review_anomaly_count": int(len(anomalies)),
                 "data_review_unresolved_count": int((reviewed.action == "REVIEW").sum()),
                 "backtest_requested": bool(run_bt),
+                "comparison_scenarios": (
+                    ["original_long_only", "original_long_short",
+                     "benchmark_equal_weight", "mixed_long_only", "mixed_long_short"]
+                    if run_bt else []
+                ),
+                "benchmark_definition": (
+                    "equal_weight_on_eligible_backtest_universe_104w"
+                    if run_bt else None
+                ),
                 "statistical_requested": bool(run_statistical),
             }
             if run_bt:
