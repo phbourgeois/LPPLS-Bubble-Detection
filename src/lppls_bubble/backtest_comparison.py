@@ -127,7 +127,20 @@ def _performance(nav: pd.DataFrame, exposures: pd.DataFrame,
         sd = weekly.std(ddof=1)
         trade = trades.loc[trades.strategy == strategy, "turnover_half_sum"]
         e = exposures.loc[exposures.strategy == strategy]
+        bench_ret = nav["ret_benchmark_equal_weight"].iloc[1:].astype(float)
+        active_ret = weekly - bench_ret
+        active_sd = active_ret.std(ddof=1)
+        annual_excess = (
+            float(values.iloc[-1]**(52/n) - nav["nav_benchmark_equal_weight"].iloc[-1]**(52/n))
+            if n and values.iloc[-1] > 0 else np.nan
+        )
         rows.append({
+            "annualized_return_gap_vs_equal_weight": annual_excess,
+            "annualized_tracking_error_vs_equal_weight":
+                float(active_sd*np.sqrt(52)) if n > 1 else np.nan,
+            "information_ratio_vs_equal_weight":
+                float(active_ret.mean()/active_sd*np.sqrt(52))
+                if n > 1 and active_sd > 0 else np.nan,
             "strategy": strategy, "description": DESCRIPTIONS[strategy],
             "total_return": float(values.iloc[-1] - 1),
             "annualized_return": float(values.iloc[-1] ** (52/n) - 1) if n and values.iloc[-1] > 0 else np.nan,
@@ -198,6 +211,20 @@ def run_strategy_comparison(
             replay["ret_" + scenario] - replay["ret_benchmark_equal_weight"]
         )
     target_frame = pd.DataFrame(target_records)
+    calendar_years = pd.to_datetime(replay.date).dt.year
+    annual_records = []
+    for strategy in SCENARIOS:
+        for year in sorted(calendar_years.unique()):
+            mask = calendar_years.eq(year)
+            # First NAV row is a rebalance with no preceding weekly holding.
+            y_rets = replay.loc[mask, "ret_" + strategy].astype(float)
+            if len(y_rets):
+                annual_records.append({
+                    "year": int(year), "strategy": strategy,
+                    "weeks": len(y_rets),
+                    "compounded_return": float(np.prod(1 + y_rets) - 1),
+                })
+    annual = pd.DataFrame(annual_records)
     outputs = {
         "backtest_comparison_nav.csv": replay,
         "backtest_comparison_metrics.csv": performance,
@@ -206,6 +233,7 @@ def run_strategy_comparison(
         "backtest_comparison_turnover.csv": trades,
         "backtest_comparison_gaps.csv": delta,
         "backtest_comparison_signal_counts.csv": pd.DataFrame(signal_records),
+        "backtest_comparison_annual.csv": annual,
     }
     for name, frame in outputs.items():
         frame.to_csv(outdir / name, index=False)
@@ -226,5 +254,6 @@ def run_strategy_comparison(
     return {
         "nav": replay, "metrics": performance, "targets": target_frame,
         "exposures": exposures, "turnover": trades, "gaps": delta,
+        "annual": annual,
         "output_dir": outdir,
     }
