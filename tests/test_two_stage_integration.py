@@ -28,13 +28,14 @@ def test_retro_exclusion_applies_to_both_models_and_zip_source_is_untouched(tmp_
     assert "A" in set(audit.asset)
     target = audit.index[audit.asset.eq("A")][0]
     audit.loc[target, ["action", "reason"]] = ["EXCLUDE_ASSET_RETRO", "Sensitivity"]
-    _, selected, events, dropped, label = validate_and_apply(audit, source)
+    _, selected, selected_bt, events, dropped, label = validate_and_apply(audit, source)
     assert events is None
     assert dropped.asset.tolist() == ["A"]
     assert label == "RETROSPECTIVE_SENSITIVITY"
     assert source.read_bytes() == original
     analysed = tmp_path / "analysed.csv"
     analysed.write_bytes(selected)
+    assert selected_bt == selected
     snap = run_snapshot(analysed, tmp_path / "snapshot", window_weeks=(13,26,78,104))
     assert set(snap["bubble_type"].asset) == {"B"}
     cfg = BacktestSettings(start_date="2025-01-10", windows=(13,26,78,104),
@@ -54,8 +55,31 @@ def test_documented_block_does_not_delete_prices(tmp_path):
     audit.loc[row, "reason"] = "Published issuer notice"
     audit.loc[row, "evidence"] = "https://example.org/notice"
     audit.loc[row, "published_at"] = published_at
-    _, selected, ledger, excluded, label = validate_and_apply(audit, source)
+    _, selected, selected_bt, ledger, excluded, label = validate_and_apply(audit, source)
     assert selected == source.read_bytes()
+    assert selected_bt == selected
     assert excluded.empty
     assert ledger is not None and b"BLOCK" in ledger
     assert label == "DOCUMENTED_ASOF_CLAIM_UNVERIFIED"
+
+
+def test_backtest_only_exclusion_retains_asset_in_snapshot(tmp_path):
+    source = _sample(tmp_path / "source.csv")
+    audit = audit_prices(source, stale_weeks=30)
+    target = audit.index[audit.asset.eq("A")][0]
+    audit.loc[target, ["action", "reason"]] = [
+        "EXCLUDE_BACKTEST_RETRO", "Backtest sensitivity"
+    ]
+    _, snapshot_bytes, backtest_bytes, _, dropped, label = validate_and_apply(audit, source)
+    assert label == "RETROSPECTIVE_SENSITIVITY"
+    assert dropped.scope.iloc[0] == "BACKTEST_ONLY"
+    snapshot_path = tmp_path / "snapshot_prices.csv"
+    snapshot_path.write_bytes(snapshot_bytes)
+    bt_path = tmp_path / "backtest_prices.csv"
+    bt_path.write_bytes(backtest_bytes)
+    snap = run_snapshot(snapshot_path, tmp_path / "snapshot", window_weeks=(13,26,78,104))
+    assert set(snap["bubble_type"].asset) == {"A","B"}
+    cfg = BacktestSettings(start_date="2025-01-10", windows=(13,26,78,104),
+                           max_rebalances=2, hold_weeks=4)
+    result = run_backtest(bt_path, tmp_path / "backtest", cfg)
+    assert set(result["states"].asset) == {"B"}
