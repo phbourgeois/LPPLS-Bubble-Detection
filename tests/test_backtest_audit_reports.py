@@ -55,6 +55,11 @@ def test_full_period_run_reconciles_reports_and_attribution(tmp_path):
         contributions = attr[attr.strategy == strategy].groupby("date")["return_contribution"].sum()
         assert np.allclose(contributions.loc[rows.index], rows.gross_asset_return)
         assert np.allclose(rows.gross_asset_return + rows.transaction_cost_contribution, rows.net_return)
+        assert np.allclose(rows.expected_net_return, rows.net_return)
+        assert np.allclose(
+            rows.transaction_cost_contribution,
+            -(1 + rows.gross_asset_return) * rows.absolute_traded_weight * settings.fee_bps / 10000,
+        )
         assert np.max(abs(rows.reconciliation_error)) < 1e-10
         assert np.allclose(rows.net_return, nav.set_index("date")["ret_" + strategy])
     metrics = result["metrics"].iloc[0]
