@@ -1,0 +1,81 @@
+# Procédure de validation des données en deux étapes (5 novembre 2026)
+
+## Étape 1 — Audit des prix, sans calcul LPPLS
+
+Dès qu'un CSV de prix est chargé, Streamlit analyse les cours **quotidiens et hebdomadaires** à partir du parseur commun, sans modifier le fichier original. L'audit est mémorisé par contenu du fichier pour ne pas relancer inutilement le scan.
+
+Critères initiaux (heuristiques, non preuves d'erreur) :
+- Rendement quotidien absolu >= **50 %** ;
+- Rendement hebdomadaire absolu >= **50 %** ;
+- **8** cours hebdomadaires consécutifs identiques ;
+- `CRITICAL` lorsque le saut est >= +300 % ou <= -90 %, sinon `REVIEW`.
+
+Le tableau renseigne le titre, la date, la fréquence, le cours précédent, le cours actuel, la variation en %, le type et la gravité. Les alertes quotidiennes et hebdomadaires peuvent désigner **le même événement économique** et ne doivent pas être décomptées comme des événements distincts.
+
+Ce filtre **ne certifie pas les séries ajustées**. Les valeurs manquantes, cours nuls ou opérations sur titres demandent éventuellement une vérification indépendante auprès du fournisseur ; les seuils proposés ne sont ni exhaustifs ni optimisés pour le backtest.
+
+## Décisions disponibles
+
+| Décision | Effet réel | Interprétation |
+|---|---|---|
+| `REVIEW` | Aucun effet, anomalie en attente | Autorisé uniquement après reconnaissance explicite des alertes critiques non résolues |
+| `KEEP` | Cours conservés tels quels | Décision d'examen, pas preuve de validité économique |
+| `EXCLUDE_ASSET_RETRO` | **Exclusion du titre entier sur toutes les dates**, dans le snapshot ET dans le backtest | **Analyse de sensibilité rétrospective**, non représentative d'un portefeuille historique sans anticipation |
+| `BLOCK_ASOF` | Blocage de nouvelles positions **aux dates habituelles de rééquilibrage** une fois l'événement publié | Nécessite `reason`, `evidence` et `published_at`, sans liquidation hebdomadaire forcée ni modification rétroactive des rendements déjà subis |
+
+Les choix autres que `REVIEW` exigent une justification. Pour `BLOCK_ASOF`, la date de publication ne peut pas être antérieure à l'anomalie qui a motivé l'action ; les publications ne sont pas vérifiées automatiquement. Si l'utilisateur a déjà une position lorsque le blocage devient actif, le moteur actuel ne la solde qu'à la **prochaine date ordinaire de décision**. Il ne faut pas prétendre que ce dispositif évite une variation déjà réalisée.
+
+**Non implémenté volontairement** : retirer un cours isolé ou un intervalle de prix, créer une interpolation arbitraire ou liquider immédiatement une position à une date rétroactive. Ces actes nécessitent de définir la convention de rendement et de transaction : masquer un cours pourrait déplacer le choc d'une semaine à l'autre.
+
+Le champ `exclude_asset_retro` est une case à cocher ergonomique de l'interface, transcrite dans le registre comme `EXCLUDE_ASSET_RETRO` ; il ne s'agit pas d'une suppression du fichier original.
+
+## Registre CSV réutilisable
+
+Le fichier `data_quality_decisions.csv` enregistre les champs suivants :
+
+- `event_id` : SHA-256 tronqué d'une identité stable (actif, date, fréquence, type de signal) ;
+- `price_fingerprint` : SHA-256 des éléments d'identité **et des deux cours comparés** ;
+- `asset,date,frequency,kind,previous_price,observed_price,return_pct,severity` ;
+- `action,reason,evidence,published_at`.
+
+À la prochaine importation, le moteur rapproche ce registre avec les alertes du nouveau fichier :
+- `MATCH` : observation identique, décision réappliquée ;
+- `CHANGED_PRICE_REVIEW` : mêmes actif et date mais prix révisés, décision antérieure **non réappliquée** ; confirmation explicite exigée pour une nouvelle décision ;
+- `NEW` : nouvel événement, défaut `REVIEW` ;
+- `NOT_DETECTED_IN_CURRENT_SOURCE` : ancien événement absent, non réappliqué.
+
+Si aucune anomalie n'est détectée, le passage à la deuxième étape est direct. Si toutes les anomalies critiques ont une décision compatible, aucune confirmation supplémentaire n'est demandée. Si des alertes critiques restent `REVIEW`, Streamlit demande une reconnaissance explicite avant d'exécuter le LPPLS.
+
+## Étape 2 — Analyses et backtest
+
+Le snapshot, les tests statistiques et le backtest reçoivent **le même CSV analysé** : il est identique à l'original sauf en cas d'exclusions rétrospectives, auquel cas les **colonnes entières** des titres explicitement exclus sont retirées. Si `BLOCK_ASOF` est sélectionné et que le backtest est activé, les événements documentés sont transmis au filtre `block_documented`.
+
+Aucune restriction supplémentaire n'est ajoutée à la grille LPPLS : elle reste **7×7×7 = 343**, identique pour snapshot et backtest. Les pondérations et stratégies antérieures sont conservées.
+
+Une signature du fichier, des choix de qualité et des paramètres d'estimation évite d'afficher comme actuel un ZIP d'une exécution précédente.
+
+## Nouveaux fichiers du ZIP
+
+Tous les livrables historiques restent regroupés dans le ZIP unique. Le dossier `audit/` contient désormais :
+- `data_quality_anomalies.csv` : anomalies détectées avant décision ;
+- `data_quality_decisions.csv` : registre importable lors d'une prochaine exécution ;
+- `analyzed_prices.csv` : **exact** fichier CSV analysé par le snapshot et le backtest ;
+- `excluded_assets.csv` : titres retirés rétrospectivement ;
+- `previous_rules_not_reapplied.csv` : anciennes décisions non reconnues dans la source actualisée.
+
+Le dossier `donnees/source.csv` contient toujours le **fichier original inchangé**. `donnees/quality_events.csv` conserve, si nécessaire, le registre d'événements documentés utilisé au backtest. `manifest.json` enregistre la qualification de l'étude et le nombre d'anomalies.
+
+Les résultats rétrospectifs et causaux ne sont **pas interchangeables** ; les différences de performances devront être documentées comme des analyses de sensibilité, notamment lorsqu'un titre est exclu à cause d'une variation découverte postérieurement.
+
+## Tests et recette
+
+Lancer localement `python -m pytest -q`, puis vérifier dans Streamlit :
+1. Upload CSV, affichage immédiat des alertes sans démarrer le modèle LPPLS ;
+2. Import d'un registre compatible, récupération des décisions, distinction des nouvelles anomalies ;
+3. Révision d'une observation et absence de réapplication automatique ;
+4. Checkbox d'exclusion rétro, contrôle du libellé de sensibilité et du CSV analysé ;
+5. `BLOCK_ASOF` avec source/date et contrôle des positions à la prochaine date de décision ;
+6. ZIP comprenant l'original, le CSV réellement analysé et le registre, avec manifeste et empreintes corrects ;
+7. Modification du CSV ou d'une décision : ne plus afficher le ZIP obsolète.
+
+Les tests ciblés du module sont exécutables hors CI ; la recette Streamlit de bout en bout reste distincte de la validation du module d'audit.
