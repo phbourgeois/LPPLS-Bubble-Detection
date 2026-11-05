@@ -17,7 +17,7 @@ from .prices import read_prices, completed_weekly_prices
 
 ACTIONS = ("REVIEW", "KEEP", "EXCLUDE_ASSET_RETRO", "BLOCK_ASOF")
 FIELDS = ["event_id", "asset", "date", "frequency", "kind", "previous_price",
-          "observed_price", "return_pct", "severity", "price_fingerprint",
+          "observed_price", "return_pct", "gap_weeks", "severity", "price_fingerprint",
           "action", "reason", "evidence", "published_at"]
 
 
@@ -30,13 +30,13 @@ def _fingerprint(asset: str, date: str, frequency: str, kind: str,
 
 
 def _append(rows: list[dict], asset: str, date: pd.Timestamp, frequency: str,
-            kind: str, prev: float, now: float, ret: float, severity: str) -> None:
+            kind: str, prev: float, now: float, ret: float, severity: str, gap_weeks: int = 0) -> None:
     day = date.date().isoformat()
     event_id, fingerprint = _fingerprint(asset, day, frequency, kind, prev, now)
     rows.append({"event_id": event_id, "asset": asset, "date": day,
                  "frequency": frequency, "kind": kind,
                  "previous_price": float(prev), "observed_price": float(now),
-                 "return_pct": float(100 * ret), "severity": severity,
+                 "return_pct": float(100 * ret), "gap_weeks": int(gap_weeks), "severity": severity,
                  "price_fingerprint": fingerprint, "action": "REVIEW", "reason": "",
                  "evidence": "", "published_at": ""})
 
@@ -69,6 +69,26 @@ def audit_prices(path: str | Path, *, weekly_threshold: float = .50,
                     if streak == stale_weeks:
                         _append(rows, asset, frame.index[i], frequency, "STALE_PRICE",
                                 float(a), float(b), 0.0, "REVIEW")
+                # Missing quotes INSIDE a listed series, grouped by contiguous run.
+                # Pre-listing missing values are not anomalies.
+                active = values.dropna()
+                if len(active) >= 2:
+                    interior = values.loc[active.index[0]:active.index[-1]]
+                    gap_start = None
+                    gap_count = 0
+                    for date, current in interior.items():
+                        if pd.isna(current):
+                            if gap_start is None:
+                                gap_start = date
+                            gap_count += 1
+                        elif gap_start is not None:
+                            previous_quote = interior.loc[:gap_start].iloc[:-1].dropna().iloc[-1]
+                            _append(rows, asset, gap_start, "WEEKLY",
+                                    "INTERNAL_MISSING_WEEK_RUN", float(previous_quote),
+                                    float("nan"), float("nan"), "REVIEW",
+                                    gap_weeks=gap_count)
+                            gap_start = None
+                            gap_count = 0
     audit = pd.DataFrame(rows, columns=FIELDS)
     if audit.empty:
         return audit
