@@ -15,6 +15,7 @@ Cette archive contient les fichiers réellement produits pendant une même exéc
 
 - donnees/source.csv : fichier de prix original fourni à l'application ;
 - donnees/quality_events.csv : registre fourni pour les blocages, le cas échéant ;
+- audit/ : anomalies, décisions réutilisables et données effectivement analysées ;
 - lppls/ : estimations, classifications, pondérations instantanées, heatmap,
   rapport HTML et rapport PDF ;
 - backtest/ : NAV hebdomadaires, performances, poids, états LPPLS,
@@ -44,6 +45,7 @@ def build_delivery_zip(
     backtest_exports: Mapping[str, bytes] | None = None,
     statistical_exports: Mapping[str, bytes] | None = None,
     *,
+    audit_exports: Mapping[str, bytes] | None = None,
     source_csv: bytes | None = None,
     source_name: str | None = None,
     event_register_csv: bytes | None = None,
@@ -67,6 +69,7 @@ def build_delivery_zip(
         ("lppls", snapshot_exports),
         ("backtest", backtest_exports or {}),
         ("statistique", statistical_exports or {}),
+        ("audit", audit_exports or {}),
     ):
         for name, data in mapping.items():
             _check_file(name, data)
