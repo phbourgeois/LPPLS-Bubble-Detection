@@ -163,7 +163,8 @@ def _metrics(nav: pd.DataFrame, turnover: pd.DataFrame, config: BacktestSettings
 
 def run_backtest(input_csv: str | Path, output_dir: str | Path,
                  config: BacktestSettings | None = None,
-                 quality_events_csv: str | Path | None = None) -> dict:
+                 quality_events_csv: str | Path | None = None,
+                 report_context: dict | None = None) -> dict:
     """Backtest causale hebdomadaire ; le notebook historique reste une archive distincte."""
     config = config or BacktestSettings()
     config.validate()
@@ -352,10 +353,15 @@ def run_backtest(input_csv: str | Path, output_dir: str | Path,
     fig.tight_layout()
     fig.savefig(outdir / "backtest_nav_plot.png", dpi=140)
     plt.close(fig)
+    from .backtest_comparison import run_strategy_comparison
+    comparison = run_strategy_comparison(
+        weekly, nav, states, weights_lo, weights_ls, config.fee_bps, outdir,
+    )
     from .backtest_report import write_backtest_reports
     report_data = {
         "output_dir": outdir, "nav": nav, "metrics": metrics, "attribution": attribution,
         "reconciliation": reconciliation, "quality_weekly_alerts": quality_weekly_alerts,
+        "comparison": comparison, "report_context": report_context,
     }
     write_backtest_reports(report_data)
     return {"weekly": weekly, "nav": nav, "metrics": metrics, "weights_lo": weights_lo,
@@ -363,4 +369,5 @@ def run_backtest(input_csv: str | Path, output_dir: str | Path,
             "quality_history": quality_history, "weighting_policy": weighting_policy,
             "attribution": attribution, "reconciliation": reconciliation,
             "quality_weekly_alerts": quality_weekly_alerts,
+            "comparison": comparison, "report_context": report_context,
             "output_dir": outdir, "settings": config}
