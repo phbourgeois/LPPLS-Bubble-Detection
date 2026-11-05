@@ -15,6 +15,7 @@ import pandas as pd
 
 from .legacy_engine import DEFAULT_WINDOWS
 from .quality import load_event_register, quality_asof
+from .backtest_audit import weekly_price_alerts, check_weekly_contributions
 
 
 @dataclass(frozen=True)
@@ -23,14 +24,14 @@ class BacktestSettings:
     hold_weeks: int = 4
     lookback_weeks: int = 104
     windows: tuple[int, ...] = DEFAULT_WINDOWS
-    max_rebalances: int = 24
+    max_rebalances: int | None = 24
     fee_bps: float = 0.0
     quality_policy: str = "audit"  # audit or block_documented; no statistical quarantine
     quality_stale_weeks: int = 8
     quality_extreme_return: float = 0.5
 
     def validate(self):
-        if self.hold_weeks < 1 or self.max_rebalances < 1:
+        if self.hold_weeks < 1 or (self.max_rebalances is not None and self.max_rebalances < 1):
             raise ValueError("hold_weeks et max_rebalances doivent etre >= 1")
         if not self.windows or min(self.windows) < 5:
             raise ValueError("Au moins une fenetre d'au moins cinq semaines est requise")
@@ -172,6 +173,10 @@ def _metrics(nav: pd.DataFrame, turnover: pd.DataFrame, config: BacktestSettings
         result["max_drawdown_" + key] = float((1 - s / s.cummax()).max())
         result["sharpe_" + key + "_weekly"] = float(r.mean() / sd * np.sqrt(52)) if len(r) > 1 and sd > 0 else np.nan
         result["turnover_mean_" + key] = float(turnover[to_col].mean())
+        n = len(r)
+        result["annualized_return_" + key] = float((s.iloc[-1] / s.iloc[0]) ** (52 / n) - 1) if n > 0 and s.iloc[0] > 0 else np.nan
+        result["annualized_volatility_" + key] = float(sd * np.sqrt(52)) if n > 1 else np.nan
+        result["sharpe_" + key] = result["sharpe_" + key + "_weekly"]
     return pd.DataFrame([result])
 
 
@@ -191,9 +196,9 @@ def run_backtest(input_csv: str | Path, output_dir: str | Path,
     decision_dates = []
     for t in candidates[::config.hold_weeks]:
         pos = weekly.index.get_loc(t)
-        if pos >= config.lookback_weeks - 1 and pos + config.hold_weeks < len(weekly):
+        if pos >= config.lookback_weeks - 1 and pos < len(weekly) - 1:
             decision_dates.append(t)
-        if len(decision_dates) == config.max_rebalances:
+        if config.max_rebalances is not None and len(decision_dates) >= config.max_rebalances:
             break
     if not decision_dates:
         raise ValueError("Aucune date de rebalancement avec un historique suffisant et un horizon complet")
@@ -219,7 +224,7 @@ def run_backtest(input_csv: str | Path, output_dir: str | Path,
         lo_rows.append(targets[["asset", "w_lo_target"]].rename(columns={"w_lo_target": "weight"}).assign(date=t.date().isoformat()))
         ls_rows.append(targets[["asset", "w_ls_target"]].rename(columns={"w_ls_target": "weight"}).assign(date=t.date().isoformat()))
     start_pos = weekly.index.get_loc(decision_dates[0])
-    end_pos = weekly.index.get_loc(decision_dates[-1]) + config.hold_weeks
+    end_pos = min(len(weekly) - 1, weekly.index.get_loc(decision_dates[-1]) + config.hold_weeks)
     dates = weekly.index[start_pos:end_pos+1]
     returns = weekly.pct_change(fill_method=None)
     nav_lo = nav_ls = 1.0
@@ -227,10 +232,14 @@ def run_backtest(input_csv: str | Path, output_dir: str | Path,
     wls = pd.Series(0.0, index=assets)
     nav_rows = []
     turn_rows = []
+    attribution_rows = []
+    reconciliation_rows = []
     last_date = None
     for i, t in enumerate(dates):
         before_lo, before_ls = nav_lo, nav_ls
+        start_wlo, start_wls = wlo.copy(), wls.copy()
         ret_lo = ret_ls = 0.0
+        r = pd.Series(0.0, index=assets, dtype=float)
         if i > 0:
             r = returns.loc[t].reindex(assets)
             exposed = (wlo.abs() > 1e-12) | (wls.abs() > 1e-12)
@@ -247,6 +256,8 @@ def run_backtest(input_csv: str | Path, output_dir: str | Path,
             # Derive des poids a prix courant avant rebalancement.
             wlo = (wlo * (1 + r)) / (1 + ret_lo)
             wls = (wls * (1 + r)) / (1 + ret_ls)
+        drift_lo, drift_ls = wlo.copy(), wls.copy()
+        target_lo, target_ls = drift_lo.copy(), drift_ls.copy()
         if t in decisions:
             target_lo = decisions[t]["w_lo_target"].reindex(assets).fillna(0)
             target_ls = decisions[t]["w_ls_target"].reindex(assets).fillna(0)
@@ -263,9 +274,37 @@ def run_backtest(input_csv: str | Path, output_dir: str | Path,
             wlo = target_lo
             wls = target_ls
             last_date = t
-        # Net returns reflect trade fees at rebalance (including the initial setup fee).
+        # Exact weekly decomposition: asset contributions plus all trading fees,
+        # including the interaction of gross return and trade costs.
         net_lo = nav_lo / before_lo - 1
         net_ls = nav_ls / before_ls - 1
+        date_label = t.date().isoformat()
+        for strategy, original, drift, target, gross, net in (
+            ("long_only", start_wlo, drift_lo, target_lo, ret_lo, net_lo),
+            ("long_short", start_wls, drift_ls, target_ls, ret_ls, net_ls),
+        ):
+            raw = original * r
+            transaction_cost = net - float(raw.sum())
+            reconciliation_rows.append({
+                "date": date_label, "strategy": strategy,
+                "gross_asset_return": float(raw.sum()),
+                "transaction_cost_contribution": transaction_cost,
+                "net_return": net,
+                "reconciliation_error": net - float(raw.sum()) - transaction_cost,
+                "gross_long_before_return": float(original.clip(lower=0).sum()),
+                "gross_short_before_return": float((-original.clip(upper=0)).sum()),
+                "net_exposure_before_return": float(original.sum()),
+            })
+            for asset in assets:
+                attribution_rows.append({
+                    "date": date_label, "strategy": strategy, "asset": asset,
+                    "weight_before_return": float(original[asset]),
+                    "asset_return": float(r[asset]),
+                    "return_contribution": float(raw[asset]),
+                    "weight_after_return_before_trade": float(drift[asset]),
+                    "weight_after_decision": float(target[asset]),
+                    "trade_absolute_weight": float(abs(target[asset] - drift[asset])),
+                })
         nav_rows.append({"date": t.date().isoformat(), "nav_long_only": nav_lo,
                          "nav_long_short": nav_ls, "ret_long_only": net_lo,
                          "ret_long_short": net_ls,
@@ -274,6 +313,16 @@ def run_backtest(input_csv: str | Path, output_dir: str | Path,
     turnover = pd.DataFrame(turn_rows)
     states = pd.concat(all_states, ignore_index=True)
     quality_history = pd.concat(quality_rows, ignore_index=True)
+    attribution = pd.DataFrame(attribution_rows)
+    reconciliation = pd.DataFrame(reconciliation_rows)
+    quality_weekly_alerts = weekly_price_alerts(
+        weekly, dates[0], dates[-1], config.quality_extreme_return, config.quality_stale_weeks)
+    check_weekly_contributions(nav, reconciliation)
+    # Asset-level gross contributions reconcile to portfolio net returns.
+    gross_check = attribution.groupby(["date", "strategy"])["return_contribution"].sum()
+    summary_check = reconciliation.set_index(["date", "strategy"])["gross_asset_return"]
+    if (gross_check - summary_check).abs().max() > 1e-10:
+        raise AssertionError("L'attribution par titre ne correspond pas au rendement brut")
     weighting_policy = pd.DataFrame([
         {"strategy": "long_only", "sleeve": "long", "weight_method": "inverse_weekly_volatility", "lookback_weeks": 52},
         {"strategy": "long_short", "sleeve": "long", "weight_method": "inverse_weekly_volatility", "lookback_weeks": 52},
@@ -282,6 +331,9 @@ def run_backtest(input_csv: str | Path, output_dir: str | Path,
     weights_lo = pd.concat(lo_rows, ignore_index=True)[["date", "asset", "weight"]]
     weights_ls = pd.concat(ls_rows, ignore_index=True)[["date", "asset", "weight"]]
     metrics = _metrics(nav, turnover, config, len(decision_dates))
+    for key in ("long_only", "long_short"):
+        selected = attribution.loc[attribution.strategy == key, "weight_before_return"]
+        metrics["max_single_asset_weight_" + key] = float(selected.abs().max()) if len(selected) else 0.0
     csv_outputs = {
         "backtest_portfolios_long_only_weights.csv": weights_lo,
         "backtest_portfolios_long_short_weights.csv": weights_ls,
@@ -291,6 +343,9 @@ def run_backtest(input_csv: str | Path, output_dir: str | Path,
         "backtest_quality_asof.csv": quality_history,
         "backtest_weighting_policy.csv": weighting_policy,
         "backtest_turnover.csv": turnover,
+        "backtest_attribution_weekly.csv": attribution,
+        "backtest_reconciliation.csv": reconciliation,
+        "backtest_quality_weekly_alerts.csv": quality_weekly_alerts,
         "backtest_nav_weekly.csv": nav,
         "backtest_summary_metrics.csv": metrics,
     }
@@ -307,7 +362,15 @@ def run_backtest(input_csv: str | Path, output_dir: str | Path,
     fig.tight_layout()
     fig.savefig(outdir / "backtest_nav_plot.png", dpi=140)
     plt.close(fig)
+    from .backtest_report import write_backtest_reports
+    report_data = {
+        "output_dir": outdir, "nav": nav, "metrics": metrics, "attribution": attribution,
+        "reconciliation": reconciliation, "quality_weekly_alerts": quality_weekly_alerts,
+    }
+    write_backtest_reports(report_data)
     return {"weekly": weekly, "nav": nav, "metrics": metrics, "weights_lo": weights_lo,
             "weights_ls": weights_ls, "states": states, "turnover": turnover,
             "quality_history": quality_history, "weighting_policy": weighting_policy,
+            "attribution": attribution, "reconciliation": reconciliation,
+            "quality_weekly_alerts": quality_weekly_alerts,
             "output_dir": outdir, "settings": config}
