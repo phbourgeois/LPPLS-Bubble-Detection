@@ -131,9 +131,9 @@ ses portefeuilles instantanés ne représentent alors pas l'univers effectivemen
 <p>Benchmark équipondéré sur les mêmes titres éligibles avec au moins 104 semaines
 de cours, aux mêmes décisions que les stratégies originales, avec les mêmes frais.
 Il ne s'agit pas du SBF 120 total-return ni d'un indice de marché officiel.</p>
-<p>Variantes mixtes : achat en cas de COHERENT_DOWN ou court UP / long DOWN ;
-vente en cas de COHERENT_UP ou court DOWN / long UP.
-Les autres MIXED ne participent pas aux nouvelles stratégies.
+<p>Variantes mixtes : conserver les achats de l'original sauf les titres court DOWN / long UP ;
+en Long/Short, ces titres passent dans la poche vendeuse avec les COHERENT_UP.
+Les autres MIXED restent achetés comme dans l'original, afin de ne modifier qu'une règle directionnelle.
 Achats pondérés par inverse-volatilité 52 semaines ; shorts pondérés selon
 priority_score LPPLS. Poche acheteuse et vendeuse 50/50 lorsque des shorts
 sont présents, comme le modèle original. Aucune limite de poids nouvelle.</p>
@@ -214,7 +214,7 @@ backtest_quality_weekly_alerts.csv ; backtest_summary_metrics.csv ; backtest_por
     pdf_table(performance, n=len(performance))
     paragraph("4. Benchmark et signaux MIXED_SCALES", "Heading2")
     paragraph("Benchmark: equipondere sur les titres eligibles du MEME univers, avec les MEMES dates et frais. Ce n'est pas un indice officiel.")
-    paragraph("Signaux mixtes: achat court UP/long DOWN ; vente court DOWN/long UP. Les autres MIXED sont exclus des nouvelles poches. Ponderations d'origine preservees.")
+    paragraph("Signaux mixtes: seuls les titres court DOWN/long UP passent de l'achat a l'exclusion ou a la vente. Les autres MIXED restent traites comme dans l'original. Ponderations d'origine preservees.")
     if not comparison_table.empty:
         pdf_metrics = comparison_table[[
             "strategy", "total_return", "annualized_volatility",
