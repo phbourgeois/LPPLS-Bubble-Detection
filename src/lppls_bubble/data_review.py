@@ -195,7 +195,10 @@ def apply_title_decisions(
         if not reason:
             reason = "Exclusion rétrospective du titre du backtest après revue des anomalies critiques"
         mask = result.asset.eq(asset)
-        result.loc[mask, "action"] = "EXCLUDE_BACKTEST_RETRO"
+        # Keep a previously explicit global exclusion unless user unchecks
+        # the title. New checkbox selections are backtest-only by default.
+        global_prior = mask & result.action.eq("EXCLUDE_ASSET_RETRO")
+        result.loc[mask & ~global_prior, "action"] = "EXCLUDE_BACKTEST_RETRO"
         result.loc[mask, "reason"] = reason
         if "compatibility" in result:
             # A freshly ticked asset is an explicit new user decision on the
