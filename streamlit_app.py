@@ -16,6 +16,8 @@ from lppls_bubble.lppls_fit import GRID_VERSION, GRID_SIZE
 from lppls_bubble.data_review import (
     ACTIONS, FIELDS, audit_prices, read_decisions,
     merge_previous_decisions, validate_and_apply, classify_uploaded_registry,
+    backtest_audit_window, critical_in_backtest, critical_by_title,
+    apply_title_decisions,
 )
 from lppls_bubble.statistical import StatisticalConfig, decide_asof
 import numpy as np
@@ -88,31 +90,65 @@ def combine_documented_events(a: bytes | None, b: bytes | None) -> bytes | None:
 
 # Keep controls reactive: Streamlit forms defer checkbox changes until submit.
 # The analysis itself runs only after the explicit button click.
-upload = st.file_uploader("CSV de cours (standard : Date;Actif... ou Datastream : trois lignes meta puis Name;Actif...)",type="csv")
-# Stage one: audit immediately on CSV upload, before running any LPPLS fit.
+upload = st.file_uploader(
+    "CSV de cours (standard : Date;Actif... ou Datastream : trois lignes meta puis Name;Actif...)",
+    type="csv",
+)
+source_payload = upload.getvalue() if upload is not None else None
+
+# Backtest dates have to be chosen BEFORE the audit. Otherwise a filter over
+# the full historical data would silently introduce future/out-of-sample alerts.
+run_bt = st.checkbox("Calculer également un backtest historique expérimental", value=False)
+if run_bt:
+    with st.expander("Période et paramètres du backtest", expanded=True):
+        st.caption("Les anomalies critiques seront détectées UNIQUEMENT sur les dates réellement valorisées par ce backtest.")
+        bt_start = st.date_input("Date de début", value=__import__("datetime").date(2024, 2, 1))
+        bt_hold = st.number_input("Période de rééquilibrage (semaines)", min_value=1, max_value=26, value=4)
+        bt_limited = st.checkbox(
+            "Limiter le nombre de rééquilibrages (sinon jusqu'à la dernière semaine complète)",
+            value=False,
+        )
+        bt_periods = (
+            st.number_input("Nombre maximal de rééquilibrages", min_value=1, max_value=500, value=24)
+            if bt_limited else None
+        )
+        bt_fees = st.number_input("Frais de transactions (points de base)", min_value=0.0, max_value=100.0, value=0.0)
+        bt_quality = st.selectbox(
+            "Politique de qualité des cours", ["audit", "block_documented"], index=0,
+            help="audit : alertes sans exclusion automatique ; block_documented : blocage après publication documentée",
+        )
+else:
+    st.caption("Sans backtest, aucune anomalie critique ne bloque l'analyse LPPLS.")
+
+@st.cache_data(show_spinner="Recherche des anomalies critiques pendant le backtest...")
+def calculate_critical_audit(payload: bytes, start_date: str, hold_weeks: int,
+                             max_rebalances: int | None):
+    with tempfile.TemporaryDirectory(prefix="lppls_critical_audit_") as folder:
+        source = Path(folder) / "source.csv"
+        source.write_bytes(payload)
+        first, last, n_decisions = backtest_audit_window(
+            source, start_date, hold_weeks, max_rebalances,
+        )
+        full = audit_prices(source)
+        return critical_in_backtest(full, first, last), first, last, n_decisions
+
 reviewed = None
 anomalies = None
 old_orphans = pd.DataFrame()
 pending_critical = 0
 decision_csv = b""
-source_payload = upload.getvalue() if upload is not None else None
-st.subheader("Étape 1 — Contrôle et validation des données")
+st.subheader("Étape 1 — Contrôle des anomalies critiques du backtest")
 if source_payload is None:
-    st.info("Charge un CSV de cours : les anomalies seront identifiées avant les calculs.")
+    st.info("Charge un CSV de cours pour commencer.")
 else:
     previous_file = st.file_uploader(
         "Registre data_quality_decisions.csv d'une analyse précédente (facultatif)",
         type="csv", key="data_review_prior",
     )
-    st.caption(
-        "Le fichier data_quality_decisions.csv appartient à l'étape 1 ; "
-        "le registre d'événements datés est un format différent."
-    )
     with st.expander("Option avancée — événements de blocage datés (facultatif)"):
         bt_events = st.file_uploader(
             "Registre d'événements (asset,published_at,action,source)",
             type="csv", key="quality_events",
-            help="Nécessaire seulement pour activer des blocages documentés à des dates historiques."
         )
     prior_payload = previous_file.getvalue() if previous_file is not None else None
     legacy_event_payload = bt_events.getvalue() if bt_events is not None else None
@@ -120,142 +156,113 @@ else:
     registry_error = None
     if legacy_event_payload is not None:
         try:
-            detected_format = classify_uploaded_registry(legacy_event_payload)
-            if detected_format == "decisions":
+            if classify_uploaded_registry(legacy_event_payload) == "decisions":
                 if prior_payload is not None:
-                    registry_error = (
-                        "Deux registres de décisions ont été chargés : "
-                        "conserve un seul fichier data_quality_decisions.csv."
-                    )
+                    registry_error = "Deux registres de décisions sont fournis : n'en conserve qu'un."
                 else:
                     prior_payload = legacy_event_payload
                     legacy_event_payload = None
-                    registry_message = (
-                        "Registre de décisions détecté dans le champ des événements : "
-                        "il est automatiquement réutilisé à l'étape 1. "
-                        "Tu pourras le charger directement dans le champ dédié la prochaine fois."
-                    )
+                    registry_message = "Le registre de décisions a été reconnu et appliqué à l'étape 1."
         except ValueError as exc:
             registry_error = str(exc)
-    audit_key = sha256(source_payload + (prior_payload or b"")).hexdigest()[:16]
+    date_options = (
+        (bt_start.isoformat(), int(bt_hold), bt_periods) if run_bt else ("NO_BACKTEST",)
+    )
+    audit_key = sha256(
+        source_payload + (prior_payload or b"") + repr(date_options).encode("utf-8")
+    ).hexdigest()[:16]
     try:
-        if registry_error is not None:
+        if registry_error:
             raise ValueError(registry_error)
         if registry_message:
             st.info(registry_message)
-        anomalies = calculate_price_audit(source_payload)
+        if run_bt:
+            anomalies, first_audit, last_audit, n_audit_decisions = calculate_critical_audit(
+                source_payload, bt_start.isoformat(), int(bt_hold),
+                int(bt_periods) if bt_periods is not None else None,
+            )
+            st.caption(
+                f"Période effective : {first_audit.date()} au {last_audit.date()} "
+                f"({n_audit_decisions} décisions). Les 104 semaines précédentes "
+                "servent au calcul LPPLS, mais pas à l'alerte critique."
+            )
+        else:
+            anomalies = pd.DataFrame(columns=FIELDS)
         old_decisions = read_decisions(prior_payload) if prior_payload is not None else None
         merged, old_orphans = merge_previous_decisions(anomalies, old_decisions)
-        n_critical = int((merged.severity == "CRITICAL").sum())
+        n_critical = len(merged)
         st.caption(
-            f"{len(merged)} alertes sur {merged.asset.nunique()} titres, "
-            f"dont {n_critical} critiques. Les alertes ne prouvent pas une erreur."
+            f"{n_critical} anomalie(s) critique(s) sur "
+            f"{merged.asset.nunique()} titre(s) pendant le backtest."
+            if run_bt else "Analyse LPPLS seule : aucune exclusion de backtest nécessaire."
         )
-        if len(merged):
-            overview = (
-                merged.groupby("asset", as_index=False)
-                .agg(n_alerts=("event_id", "count"),
-                     largest_abs_weekly_or_daily_move_pct=(
-                         "return_pct", lambda x: x.abs().max()))
-                .sort_values("n_alerts", ascending=False)
-            )
-            with st.expander("Résumé des anomalies par titre"):
-                st.dataframe(overview, use_container_width=True, hide_index=True)
         if old_decisions is not None:
-            st.success(
-                f"{int((merged.compatibility == 'MATCH').sum())} décisions compatibles réutilisées. "
-                f"{int((merged.compatibility == 'CHANGED_PRICE_REVIEW').sum())} observations modifiées, "
-                f"{len(old_orphans)} événements absents du nouveau fichier."
+            st.info(
+                f"{int((merged.compatibility == 'MATCH').sum())} décision(s) réutilisée(s) ; "
+                f"{int((merged.compatibility == 'CHANGED_PRICE_REVIEW').sum())} prix révisé(s) "
+                f"et {len(old_orphans)} ancien(s) événement(s) non réappliqué(s)."
             )
         if len(old_orphans):
-            with st.expander("Anciennes décisions non retrouvées (non réappliquées)"):
+            with st.expander("Décisions anciennes hors période ou devenues incompatibles"):
                 st.dataframe(old_orphans, use_container_width=True, hide_index=True)
         if merged.empty:
-            st.success("Aucune anomalie détectée selon les seuils retenus. L'analyse peut être lancée.")
+            st.success("Aucun titre à exclure sur la période sélectionnée.")
             reviewed = merged
         else:
-            editor_data = merged.copy()
-            editor_data["exclude_backtest_retro"] = editor_data.action.eq("EXCLUDE_BACKTEST_RETRO")
-            editor_data.loc[editor_data.exclude_backtest_retro, "action"] = "REVIEW"
-            show_columns = [
-                "event_id", "asset", "date", "frequency", "kind",
-                "previous_price", "observed_price", "return_pct",
-                "gap_weeks", "severity", "action", "exclude_backtest_retro", "reason",
-                "evidence", "published_at", "compatibility",
-            ]
+            by_title = critical_by_title(merged)
             st.caption(
-                "Coche « Exclure du backtest (rétro) » pour retirer entièrement un titre "
-                "du backtest, tout en le conservant dans les diagnostics LPPLS. "
-                "Pour le retirer aussi des estimations, choisis EXCLUDE_ASSET_RETRO. "
-                "Ces exclusions rétrospectives ne sont pas des décisions causales."
+                "Une seule case par titre : cocher exclut le titre de TOUT le backtest "
+                "(et non une observation particulière). Les anomalies restent consultables ci-dessous."
             )
-            edited = st.data_editor(
-                editor_data[show_columns], hide_index=True, use_container_width=True,
-                height=480, num_rows="fixed", key="review_" + audit_key,
-                disabled=["event_id","asset","date","frequency","kind",
-                          "previous_price","observed_price","return_pct",
-                          "gap_weeks","severity","compatibility"],
+            edited_titles = st.data_editor(
+                by_title, hide_index=True, use_container_width=True,
+                num_rows="fixed", key="review_titles_" + audit_key,
+                disabled=["asset", "n_critical", "first_date", "last_date",
+                          "max_abs_return_pct"],
                 column_config={
-                    "event_id": None,
-                    "previous_price": st.column_config.NumberColumn("Cours précédent", format="%.5f"),
-                    "observed_price": st.column_config.NumberColumn("Cours observé", format="%.5f"),
-                    "action": st.column_config.SelectboxColumn(
-                        "Décision", options=["REVIEW", "KEEP", "BLOCK_ASOF", "EXCLUDE_ASSET_RETRO"], required=True),
-                    "exclude_backtest_retro": st.column_config.CheckboxColumn(
-                        "Exclure du backtest (rétro)", default=False),
-                    "return_pct": st.column_config.NumberColumn("Variation (%)", format="%.2f"),
-                    "gap_weeks": st.column_config.NumberColumn("Semaines manquantes", format="%d"),
+                    "asset": st.column_config.TextColumn("Titre"),
+                    "n_critical": st.column_config.NumberColumn("Alertes critiques"),
+                    "first_date": st.column_config.TextColumn("Première alerte"),
+                    "last_date": st.column_config.TextColumn("Dernière alerte"),
+                    "max_abs_return_pct": st.column_config.NumberColumn(
+                        "Amplitude maximale (%)", format="%.2f"
+                    ),
+                    "exclude_backtest": st.column_config.CheckboxColumn(
+                        "Exclure le titre du backtest", default=False
+                    ),
+                    "reason": st.column_config.TextColumn("Justification (facultative)"),
                 },
             )
-            reviewed = merged.copy()
-            for field in ("action", "reason", "evidence", "published_at"):
-                reviewed[field] = edited[field].to_numpy()
-            reviewed.loc[edited.exclude_backtest_retro.to_numpy(dtype=bool), "action"] = "EXCLUDE_BACKTEST_RETRO"
-            changed = reviewed.compatibility.eq("CHANGED_PRICE_REVIEW")
-            if changed.any():
-                st.warning(
-                    f"{int(changed.sum())} observation(s) dont les prix ont changé : "
-                    "les décisions antérieures ne sont pas réappliquées. "
-                    "Toute nouvelle décision doit être justifiée."
+            with st.expander("Détail des anomalies critiques par titre"):
+                st.dataframe(
+                    merged[["asset", "date", "frequency", "kind",
+                            "previous_price", "observed_price", "return_pct",
+                            "severity"]],
+                    use_container_width=True, hide_index=True,
                 )
-                reviewed.loc[changed, "compatibility"] = "REVALIDATED"
-        pending_critical = int((
-            reviewed.action.eq("REVIEW") & reviewed.severity.eq("CRITICAL")
-        ).sum())
+            reviewed = apply_title_decisions(merged, edited_titles)
+        pending_critical = int(
+            (reviewed.action.eq("REVIEW") & reviewed.severity.eq("CRITICAL")).sum()
+        )
         decision_csv = reviewed[FIELDS].to_csv(index=False).encode("utf-8")
         st.download_button(
-            "Télécharger le registre CSV des décisions",
-            decision_csv, file_name="data_quality_decisions.csv", mime="text/csv",
-            key="decision_download_" + audit_key,
+            "Télécharger les exclusions et anomalies (CSV)",
+            data=decision_csv, file_name="data_quality_decisions.csv",
+            mime="text/csv", key="decision_download_" + audit_key,
         )
     except Exception as exc:
         reviewed = None
         st.error(f"Audit des données impossible : {exc}")
+
 st.subheader("Étape 2 — Estimations LPPLS et backtest")
-selected = st.multiselect("Fenetres hebdomadaires", list(DEFAULT_WINDOWS), default=list(DEFAULT_WINDOWS))
-run_statistical = st.checkbox("Diagnostic statistique expérimental (bootstrap, 52 et 104 semaines)", value=False)
-run_bt = st.checkbox("Calculer également un backtest historique expérimental", value=False)
+selected = st.multiselect(
+    "Fenêtres hebdomadaires", list(DEFAULT_WINDOWS), default=list(DEFAULT_WINDOWS)
+)
+run_statistical = st.checkbox(
+    "Diagnostic statistique expérimental (bootstrap, 52 et 104 semaines)", value=False
+)
 if run_bt:
-    st.caption("Les signaux au temps t n'utilisent aucune donnee posterieure à t. La strategie est reponderee periodiquement (pas de reproduction numerique de la version notebook).")
-    bt_start = st.date_input("Date de debut", value=__import__("datetime").date(2024, 2, 1))
-    bt_hold = st.number_input("Periode de rebalancement (semaines)", min_value=1, max_value=26, value=4)
-    bt_limited = st.checkbox(
-        "Limiter le nombre de rééquilibrages (sinon jusqu'à la dernière semaine complète)",
-        value=False,
-        help="Désactivé : étudier tout l'historique admissible, même si la dernière période contient moins de 4 semaines."
-    )
-    bt_periods = (st.number_input("Nombre maximal de rééquilibrages",
-                                   min_value=1, max_value=500, value=24)
-                  if bt_limited else None)
-    bt_fees = st.number_input("Frais de transactions (points de base)", min_value=0.0, max_value=100.0, value=0.0)
-    bt_quality = st.selectbox("Politique de qualité des cours",
-                              ["audit", "block_documented"], index=0,
-                              help="audit: alertes sans exclusion; block_documented: blocages selon dates de publication d’un registre externe")
-    st.caption(
-        "Le registre de décisions se charge à l'étape 1. "
-        "Les événements documentés facultatifs sont accessibles dans "
-        "l'option avancée de cette même étape. Pondérations historiques préservées."
-    )
+    st.caption("Période et paramètres du backtest définis au-dessus de l'étape 1.")
 # The ZIP is valid only for the dataset, decisions and parameters that created it.
 form_parameters = {
     "windows": tuple(sorted(selected)), "statistical": bool(run_statistical),
