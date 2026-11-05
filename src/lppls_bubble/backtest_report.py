@@ -210,6 +210,13 @@ backtest_quality_weekly_alerts.csv ; backtest_summary_metrics.csv ; backtest_por
     paragraph(f"Statut: {study_type}. {asset_summary}")
     paragraph("Les exclusions retrospectivement decidees ne constituent PAS une regle sans anticipation. Les portefeuilles instantanes LPPLS peuvent conserver des titres exclus du backtest.")
     pdf_table(excluded, columns=["asset", "scope", "classification"], n=30)
+    for record in context.get("excluded_assets", []):
+        paragraph(
+            f"{record.get('asset', '?')} — anomalies : "
+            f"{record.get('anomaly_dates', 'non documentées')} ; "
+            f"amplitude maximale : {record.get('max_abs_anomaly_return_pct', 'n.d.')} % ; "
+            f"justification : {record.get('justification', 'non renseignée')}"
+        )
     paragraph("3. Performances historiques", "Heading2")
     pdf_table(performance, n=len(performance))
     paragraph("4. Benchmark et signaux MIXED_SCALES", "Heading2")
