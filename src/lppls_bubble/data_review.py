@@ -163,7 +163,7 @@ def validate_and_apply(audit_decisions: pd.DataFrame, source: str | Path
             raise ValueError("Une observation modifiée ne peut pas réutiliser une décision antérieure")
     asof = df.loc[df.action.eq("BLOCK_ASOF")].copy()
     if len(asof):
-        if (asof.evidence.astype(str).str.strip() == "").any():
+        if asof.evidence.fillna("").astype(str).str.strip().isin(("", "nan", "None", "<NA>")).any():
             raise ValueError("BLOCK_ASOF exige une source documentée")
         published = pd.to_datetime(asof.published_at, errors="coerce")
         if published.isna().any():
