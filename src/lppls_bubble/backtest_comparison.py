@@ -20,8 +20,8 @@ DESCRIPTIONS = {
     "original_long_only": "Historical original long-only, inverse 52-week volatility",
     "original_long_short": "Historical original L/S, long inverse-vol, short LPPLS score",
     "benchmark_equal_weight": "Equal weight all 104-week eligible assets; same rebalance dates",
-    "mixed_long_only": "Long COHERENT_DOWN / NO_BUBBLE / short-UP long-DOWN; other MIXED excluded",
-    "mixed_long_short": "Same longs; shorts COHERENT_UP + short-DOWN long-UP; other MIXED excluded",
+    "mixed_long_only": "Original long sleeve, excluding only MIXED short-DOWN/long-UP",
+    "mixed_long_short": "Original long sleeve minus bearish MIXED; same shorts plus bearish MIXED",
 }
 
 
@@ -37,10 +37,11 @@ def _mixed_targets(states: pd.DataFrame, past: pd.DataFrame) -> dict[str, pd.Ser
         eligible & state.state.eq("MIXED_SCALES")
         & state.bubble_short_term.eq("DOWN") & state.bubble_long_term.eq("UP")
     )
-    long_ok = eligible & (
-        state.state.isin(["COHERENT_MULTI_DOWN", "NO_BUBBLE"])
-        | up_short_down_long
-    )
+    # Keep all original long candidates, including ambiguous MIXED states.
+    # Change ONLY the short-DOWN/long-UP directional mixed category:
+    # remove it from longs, and move it to shorts in the mixed L/S scenario.
+    # short-UP/long-DOWN was already long in the original strategy.
+    long_ok = eligible & ~state.state.eq("COHERENT_MULTI_UP") & ~down_short_up_long
     short_ok = eligible & (
         state.state.eq("COHERENT_MULTI_UP") | down_short_up_long
     )
