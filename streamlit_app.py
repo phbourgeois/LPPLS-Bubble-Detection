@@ -242,7 +242,10 @@ else:
                 )
             reviewed = apply_title_decisions(merged, edited_titles)
         pending_critical = int(
-            (reviewed.action.eq("REVIEW") & reviewed.severity.eq("CRITICAL")).sum()
+            reviewed.loc[
+                reviewed.action.eq("REVIEW") & reviewed.severity.eq("CRITICAL"),
+                "asset",
+            ].nunique()
         )
         decision_csv = reviewed[FIELDS].to_csv(index=False).encode("utf-8")
         st.download_button(
@@ -279,7 +282,7 @@ current_run_signature = sha256(
 ).hexdigest()
 if pending_critical:
     st.warning(
-        f"{pending_critical} anomalie(s) critique(s) restent à examiner. "
+        f"{pending_critical} titre(s) avec des anomalies critiques restent à examiner. "
         "Leurs rendements ne sont ni supprimés ni corrigés automatiquement."
     )
     accept_unresolved = st.checkbox(
