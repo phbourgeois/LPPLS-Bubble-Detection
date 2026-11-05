@@ -169,6 +169,13 @@ if submitted:
                         f"— {int(bt_metrics.num_rebalances.iloc[0])} décisions."
                     )
                     st.dataframe(bt_metrics, use_container_width=True, hide_index=True)
+                    critical_count = int((bt_weekly_alerts["severity"] == "CRITICAL_REVIEW").sum())
+                    if critical_count:
+                        st.warning(
+                            f"{critical_count} mouvements de prix critiques à vérifier sur des "
+                            "séries ajustées avant d'interpréter les performances. "
+                            "Ces mouvements n'ont pas été supprimés du backtest."
+                        )
                     with st.expander("Qualité hebdomadaire et rapprochement des NAV"):
                         st.dataframe(bt_weekly_alerts, use_container_width=True, hide_index=True)
                         st.dataframe(bt_reconciliation, use_container_width=True, hide_index=True)
