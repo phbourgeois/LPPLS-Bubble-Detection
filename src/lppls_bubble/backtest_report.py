@@ -48,6 +48,18 @@ def write_backtest_reports(result: dict) -> None:
     alerts = result["quality_weekly_alerts"]
     performance = _performance_table(metrics)
     top = _largest_contributions(attribution)
+    concentrations = (
+        attribution.assign(abs_weight=attribution.weight_before_return.abs())
+        .groupby(["date", "strategy"], as_index=False)["abs_weight"].max()
+        .nlargest(14, "abs_weight")
+        if not attribution.empty
+        else pd.DataFrame(columns=["date", "strategy", "abs_weight"])
+    )
+    exposures = (
+        reconciliation[["date", "strategy", "gross_long_before_return",
+                        "gross_short_before_return", "net_exposure_before_return"]]
+        .tail(18)
+    )
     start, end = str(nav.date.iloc[0]), str(nav.date.iloc[-1])
     n_decisions = int(metrics.num_rebalances.iloc[0])
     max_error = float(reconciliation.reconciliation_error.abs().max())
@@ -87,11 +99,17 @@ Les frais sont comptabilisés séparément, y compris l'effet de leur applicatio
 <p class="note">{escape(warning)} Les alertes sont enregistrées même entre les dates de rééquilibrage.
 Aucune observation extrême n'est exclue ou corrigée automatiquement.</p>
 {html_table(alerts.head(50))}
-<h2>6. Risques et limites</h2>
+<h2>6. Expositions et concentration</h2>
+<p>Les expositions acheteuses et vendeuses sont mesurées avant les rendements de chaque semaine ;
+les poids peuvent dériver même sans transaction. Le tableau de concentration retient la plus grande
+position individuelle en valeur absolue.</p>
+<h3>Concentrations les plus élevées</h3>{html_table(concentrations)}
+<h3>Dernières expositions hebdomadaires</h3>{html_table(exposures)}
+<h2>7. Risques et limites</h2>
 <p>Les hausses exceptionnelles peuvent créer une forte concentration entre deux décisions malgré une pondération initiale inverse-volatilité.
 La performance ne représente pas nécessairement un portefeuille investissable : prix ajustés, composition historique de l'univers, coût d'emprunt et traitement des radiations restent à certifier.</p>
 <p>Les règles non tranchées (plafonds, quarantaine, pondération des shorts harmonisée et stratégie MIXED_SCALES) ne sont pas appliquées.</p>
-<h2>7. Fichiers pour audit</h2>
+<h2>8. Fichiers pour audit</h2>
 <p>backtest_nav_weekly.csv ; backtest_attribution_weekly.csv ; backtest_reconciliation.csv ;
 backtest_quality_weekly_alerts.csv ; backtest_summary_metrics.csv ; backtest_portfolios_*_weights.csv.</p>
 </body></html>"""
@@ -152,7 +170,10 @@ backtest_quality_weekly_alerts.csv ; backtest_summary_metrics.csv ; backtest_por
     paragraph(f"Écart maximal entre attribution et rendement net : {max_error:.3g}. Les contributions individuelles et les frais se réconcilient avec les NAV.")
     pdf_table(top, columns=["date","strategy","asset","return_contribution"], n=20)
     elements.append(PageBreak())
-    paragraph("6. Limites et questions ouvertes", "Heading2")
+    paragraph("6. Expositions et concentration", "Heading2")
+    paragraph("Les poids dérivent entre décisions ; expositions calculées avant les rendements hebdomadaires.")
+    pdf_table(concentrations, columns=["date", "strategy", "abs_weight"], n=14)
+    paragraph("7. Limites et questions ouvertes", "Heading2")
     for notice in [
         "Prix ajustés, distributions et éventuelles radiations : non certifiés.",
         "Les alertes sur variations extrêmes ne prouvent pas une erreur de données.",
