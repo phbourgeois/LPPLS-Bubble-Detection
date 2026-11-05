@@ -34,78 +34,9 @@ def run_snapshot(input_csv: str | Path, output_dir: str | Path, window_weeks=DEF
     if weekly.empty:
         raise ValueError("Aucune observation hebdomadaire exploitable")
 
-    # Cellule historique 8
-
-    import numpy as np
-
-    def fast_lppls_fit(logp: np.ndarray):
-        """
-        Ajustement LPPLS rapide :
-        - grille sur m, omega (ω), tc
-        - estimation linéaire de A, B, C1, C2
-        Retourne le meilleur fit (SSE minimum).
-        """
-        y = np.asarray(logp, float)
-        n = len(y)
-        t = np.arange(n, dtype=float)
-
-        # Grilles (compactes pour rester rapides)
-        m_grid = np.linspace(0.1, 0.9, 7)
-        omega_grid = np.linspace(6.0, 13.0, 7)
-        ahead_max = min(1.5*n, max(6, n))
-        tc_ahead_grid = np.linspace(1.0, ahead_max, 7)
-
-        best = None
-        for m in m_grid:
-            for omega in omega_grid:
-                for ahead in tc_ahead_grid:
-                    tc = (n - 1) + ahead
-                    tau = tc - t
-                    if np.any(tau <= 0):
-                        continue
-
-                    x1 = tau**m
-                    ang = omega*np.log(tau)
-                    x2 = x1*np.cos(ang)
-                    x3 = x1*np.sin(ang)
-                    X = np.column_stack([np.ones(n), x1, x2, x3])
-
-                    beta, *_ = np.linalg.lstsq(X, y, rcond=None)
-                    yhat = X @ beta
-                    resid = yhat - y
-                    sse = float(np.sum(resid**2))
-
-                    if (best is None) or (sse < best["sse"]):
-                        A, B, C1, C2 = beta
-                        sst = float(np.sum((y - y.mean())**2))
-                        r2 = 1 - sse/sst if sst > 0 else np.nan
-                        rmse = float(np.sqrt(np.mean(resid**2)))
-                        C = float(np.sqrt(C1*C1 + C2*C2))
-                        phi = float(np.arctan2(C2, C1) % (2*np.pi))
-                        best = dict(success=True, A=float(A), B=float(B), C=C, m=float(m),
-                                    omega=float(omega), phi=phi, tc=float(tc),
-                                    r2=r2, rmse=rmse, sse=sse, n=n)
-        return best if best is not None else {"success": False, "n": len(y)}
-
-    def classify_fit(fit: dict):
-        """Filtrage minimal + signal UP/DOWN."""
-        if not fit.get("success", False):
-            return False, "NONE"
-        n = fit["n"]
-        m, omega, tc, r2 = fit["m"], fit["omega"], fit["tc"], fit["r2"]
-
-        valid = True
-        if not (0.1 <= m <= 0.9): valid = False
-        if not (6.0 <= omega <= 13.0): valid = False
-        if not ((n-1) < tc <= (n-1) + 1.5*n): valid = False
-        if np.isnan(r2) or r2 < 0.2: valid = False
-
-        if not valid:
-            return False, "NONE"
-
-        # Convention : B < 0 => bulle haussière (accélération super‑exponentielle)
-        signal = "UP" if fit["B"] < 0 else "DOWN"
-        return True, signal
+    # Cellule historique 8 : grille complète partagée avec le backtest.
+    # Calcul numérique inchangé ; design et pseudo-inverses mis en cache.
+    from .lppls_fit import fit_lppls, classify_lppls, GRID_VERSION
 
     # Cellule historique 10
 
@@ -120,8 +51,8 @@ def run_snapshot(input_csv: str | Path, output_dir: str | Path, window_weeks=DEF
                 continue
 
             y = np.log(window.values.astype(float))
-            fit = fast_lppls_fit(y)
-            is_valid, signal = classify_fit(fit)
+            fit = fit_lppls(y)
+            is_valid, signal = classify_lppls(fit)
             tc_weeks_ahead = (fit["tc"] - (fit["n"]-1)) if fit.get("success", False) else np.nan
 
             details_rows.append({
@@ -332,6 +263,6 @@ def run_snapshot(input_csv: str | Path, output_dir: str | Path, window_weeks=DEF
     print("Saved:", PORTFOLIO_OUT, "| rows:", len(portfolio))
     portfolio.head(10)
 
-    return {"daily": df, "weekly": weekly, "details": details, "summary": wide,
+    return {"grid_version": GRID_VERSION, "daily": df, "weekly": weekly, "details": details, "summary": wide,
             "bubble_type": bubble_type, "bubble_summary": bubble_wide,
             "portfolio": portfolio, "heatmap_path": HEATMAP_OUT, "output_dir": OUTPUT_DIR}

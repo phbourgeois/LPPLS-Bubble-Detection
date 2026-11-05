@@ -91,3 +91,9 @@ Un backtest en erreur n'est **jamais présenté comme réussi** : le ZIP conserv
 - Frais, périodes réelles, volatilités, rendements annualisés, Sharpe et concentrations sont désormais exportés ; stratégies, règles de pondération et statut de validation scientifique inchangés.
 
 Voir [protocole et limites de cette mise à jour](docs/BACKTEST_DATA_QUALITY_REPORTS_2026_11_05.md). Les cours de marché historiques ne sont pas certifiés ajustés ; les mouvements atypiques doivent être vérifiés auprès du fournisseur.
+
+## Grille approfondie unique (5 novembre 2026)
+
+Les deux moteurs opérationnels (photographie LPPLS et historique du backtest) utilisent désormais **exactement la même grille approfondie de 343 combinaisons**. Le calcul est mutualisé et vectorisé avec mise en cache des matrices, sans retour à une grille simplifiée. Le fichier `manifest.json` du ZIP et `backtest_summary_metrics.csv` identifient la version de la grille. Les anciens backtests calculés sur 27 combinaisons ne sont pas comparables sans recalcul.
+
+Voir [méthode et tests de concordance](docs/UNIFIED_FULL_GRID_2026_11_05.md).
