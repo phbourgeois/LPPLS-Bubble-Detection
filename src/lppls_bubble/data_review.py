@@ -134,6 +134,9 @@ def validate_and_apply(audit_decisions: pd.DataFrame, source: str | Path
         raise ValueError("Colonnes manquantes dans les décisions")
     if df.event_id.duplicated().any() or not df.action.isin(ACTIONS).all():
         raise ValueError("Décisions invalides ou dupliquées")
+    resolved = df.action.ne("REVIEW")
+    if (resolved & df.reason.fillna("").astype(str).str.strip().eq("")).any():
+        raise ValueError("Une justification est obligatoire pour toute décision autre que REVIEW")
     if "compatibility" in df:
         stale = df.compatibility.eq("CHANGED_PRICE_REVIEW")
         if (stale & df.action.ne("REVIEW")).any():
