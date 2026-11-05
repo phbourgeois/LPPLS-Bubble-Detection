@@ -21,6 +21,7 @@ Ce filtre **ne certifie pas les séries ajustées**. Les valeurs manquantes, cou
 |---|---|---|
 | `REVIEW` | Aucun effet, anomalie en attente | Autorisé uniquement après reconnaissance explicite des alertes critiques non résolues |
 | `KEEP` | Cours conservés tels quels | Décision d'examen, pas preuve de validité économique |
+| `EXCLUDE_BACKTEST_RETRO` | **Exclusion du titre entier uniquement du backtest**, sur toutes les dates | **Analyse de sensibilité rétrospective**, la classification LPPLS reste disponible |
 | `EXCLUDE_ASSET_RETRO` | **Exclusion du titre entier sur toutes les dates**, dans le snapshot ET dans le backtest | **Analyse de sensibilité rétrospective**, non représentative d'un portefeuille historique sans anticipation |
 | `BLOCK_ASOF` | Blocage de nouvelles positions **aux dates habituelles de rééquilibrage** une fois l'événement publié | Nécessite `reason`, `evidence` et `published_at`, sans liquidation hebdomadaire forcée ni modification rétroactive des rendements déjà subis |
 
@@ -28,7 +29,7 @@ Les choix autres que `REVIEW` exigent une justification. Pour `BLOCK_ASOF`, la d
 
 **Non implémenté volontairement** : retirer un cours isolé ou un intervalle de prix, créer une interpolation arbitraire ou liquider immédiatement une position à une date rétroactive. Ces actes nécessitent de définir la convention de rendement et de transaction : masquer un cours pourrait déplacer le choc d'une semaine à l'autre.
 
-Le champ `exclude_asset_retro` est une case à cocher ergonomique de l'interface, transcrite dans le registre comme `EXCLUDE_ASSET_RETRO` ; il ne s'agit pas d'une suppression du fichier original.
+Le champ `exclude_backtest_retro` est une case à cocher dans l'interface, transcrite dans le registre comme `EXCLUDE_BACKTEST_RETRO`. L'exclusion commune au snapshot et au backtest est un **choix séparé** dans la liste d'actions. Aucun de ces choix n'efface la source originale.
 
 ## Registre CSV réutilisable
 
@@ -49,7 +50,7 @@ Si aucune anomalie n'est détectée, le passage à la deuxième étape est direc
 
 ## Étape 2 — Analyses et backtest
 
-Le snapshot, les tests statistiques et le backtest reçoivent **le même CSV analysé** : il est identique à l'original sauf en cas d'exclusions rétrospectives, auquel cas les **colonnes entières** des titres explicitement exclus sont retirées. Si `BLOCK_ASOF` est sélectionné et que le backtest est activé, les événements documentés sont transmis au filtre `block_documented`.
+Les deux analyses partent de **la même source originale** et de la même grille LPPLS. Elles peuvent toutefois recevoir des **univers explicitement différents** : une exclusion `BACKTEST_ONLY` retire une colonne du CSV backtest mais la conserve pour les estimations LPPLS et les diagnostics statistiques ; une exclusion `EXCLUDE_ASSET_RETRO` retire la colonne des deux CSV. Les différences sont recensées et publiées. Si `BLOCK_ASOF` est sélectionné et que le backtest est activé, les événements documentés sont transmis au filtre `block_documented`.
 
 Aucune restriction supplémentaire n'est ajoutée à la grille LPPLS : elle reste **7×7×7 = 343**, identique pour snapshot et backtest. Les pondérations et stratégies antérieures sont conservées.
 
@@ -60,7 +61,8 @@ Une signature du fichier, des choix de qualité et des paramètres d'estimation 
 Tous les livrables historiques restent regroupés dans le ZIP unique. Le dossier `audit/` contient désormais :
 - `data_quality_anomalies.csv` : anomalies détectées avant décision ;
 - `data_quality_decisions.csv` : registre importable lors d'une prochaine exécution ;
-- `analyzed_prices.csv` : **exact** fichier CSV analysé par le snapshot et le backtest ;
+- `snapshot_prices.csv` : **exact** CSV utilisé pour les estimations LPPLS et les diagnostics statistiques ;
+- `backtest_prices.csv` : **exact** CSV utilisé pour les rendements et positions historiques ;
 - `excluded_assets.csv` : titres retirés rétrospectivement ;
 - `previous_rules_not_reapplied.csv` : anciennes décisions non reconnues dans la source actualisée.
 
@@ -74,7 +76,7 @@ Lancer localement `python -m pytest -q`, puis vérifier dans Streamlit :
 1. Upload CSV, affichage immédiat des alertes sans démarrer le modèle LPPLS ;
 2. Import d'un registre compatible, récupération des décisions, distinction des nouvelles anomalies ;
 3. Révision d'une observation et absence de réapplication automatique ;
-4. Checkbox d'exclusion rétro, contrôle du libellé de sensibilité et du CSV analysé ;
+4. Checkbox d'exclusion du backtest seulement, puis choix distinct d'exclusion globale : contrôle des deux CSV et du libellé de sensibilité ;
 5. `BLOCK_ASOF` avec source/date et contrôle des positions à la prochaine date de décision ;
 6. ZIP comprenant l'original, le CSV réellement analysé et le registre, avec manifeste et empreintes corrects ;
 7. Modification du CSV ou d'une décision : ne plus afficher le ZIP obsolète.
