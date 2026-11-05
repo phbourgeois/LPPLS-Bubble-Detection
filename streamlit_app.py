@@ -309,8 +309,8 @@ if submitted:
             existing_events = legacy_event_payload if run_bt else None
             event_payload = combine_documented_events(reviewed_events, existing_events)
             effective_quality_policy = (
-                "block_documented" if reviewed_events is not None else
-                bt_quality if run_bt else "audit"
+                "block_documented" if run_bt and event_payload is not None
+                else bt_quality if run_bt else "audit"
             )
             weekly,bubbles,details,portfolio,exports = calculate(
                 snapshot_payload, tuple(sorted(selected))
