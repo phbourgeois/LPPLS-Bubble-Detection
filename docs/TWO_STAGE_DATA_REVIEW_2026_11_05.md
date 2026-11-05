@@ -8,9 +8,10 @@ Critères initiaux (heuristiques, non preuves d'erreur) :
 - Rendement quotidien absolu >= **50 %** ;
 - Rendement hebdomadaire absolu >= **50 %** ;
 - **8** cours hebdomadaires consécutifs identiques ;
+- Intervalles de cours hebdomadaires manquants **à l'intérieur d'une série déjà cotée**, avec nombre de semaines indiqué (pas de confusion avec les périodes avant introduction en Bourse) ;
 - `CRITICAL` lorsque le saut est >= +300 % ou <= -90 %, sinon `REVIEW`.
 
-Le tableau renseigne le titre, la date, la fréquence, le cours précédent, le cours actuel, la variation en %, le type et la gravité. Les alertes quotidiennes et hebdomadaires peuvent désigner **le même événement économique** et ne doivent pas être décomptées comme des événements distincts.
+Le tableau renseigne le titre, la date, la fréquence, le cours précédent, le cours actuel, la variation en %, le nombre éventuel de semaines manquantes, le type et la gravité. Les alertes quotidiennes et hebdomadaires peuvent désigner **le même événement économique** et ne doivent pas être décomptées comme des événements distincts.
 
 Ce filtre **ne certifie pas les séries ajustées**. Les valeurs manquantes, cours nuls ou opérations sur titres demandent éventuellement une vérification indépendante auprès du fournisseur ; les seuils proposés ne sont ni exhaustifs ni optimisés pour le backtest.
 
@@ -35,7 +36,7 @@ Le fichier `data_quality_decisions.csv` enregistre les champs suivants :
 
 - `event_id` : SHA-256 tronqué d'une identité stable (actif, date, fréquence, type de signal) ;
 - `price_fingerprint` : SHA-256 des éléments d'identité **et des deux cours comparés** ;
-- `asset,date,frequency,kind,previous_price,observed_price,return_pct,severity` ;
+- `asset,date,frequency,kind,previous_price,observed_price,return_pct,gap_weeks,severity` ;
 - `action,reason,evidence,published_at`.
 
 À la prochaine importation, le moteur rapproche ce registre avec les alertes du nouveau fichier :
