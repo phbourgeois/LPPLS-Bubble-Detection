@@ -118,3 +118,16 @@ Le CSV `data_quality_decisions.csv` contient les choix de validation de **l'éta
 S'il reste des alertes critiques `REVIEW`, une case de confirmation est placée **immédiatement au-dessus du bouton « Lancer l'analyse »**. Le bouton s'active après confirmation ; les alertes et les rendements demeurent inchangés et sont archivés. La validation de chaque événement n'est pas obligatoire pour exécuter une analyse exploratoire. En absence d'alerte critique, cette case ne bloque pas le lancement.
 
 Les registres datés de blocage restent une option avancée ; lorsque ce registre est fourni au backtest, il active la politique `block_documented` pour les futures positions éligibles (sans effacer les rendements passés).
+
+
+## Affichage simplifié des anomalies critiques (5 novembre 2026)
+
+La sélection des exclusions est désormais faite **par titre**, jamais par ligne d'anomalie. L'utilisateur définit les paramètres du backtest avant l'audit. L'application reprend exactement les dates de décision admissibles et calcule la **dernière date de NAV**, y compris lorsqu'un maximum de rééquilibrages réduit l'échantillon. Seuls les événements classés **CRITICAL** et observés entre ces deux dates sont affichés.
+
+La liste principale comprend une ligne par titre : nombre d'événements critiques, première/dernière date, amplitude maximale et **une seule case « Exclure le titre du backtest »**. Le détail des événements (dates, cours avant/après, variations quotidiennes ou hebdomadaires) est disponible dans un tableau en lecture seule. Cocher le titre le retire **sur toute la période du backtest**, sans supprimer de date ni de prix. Le snapshot LPPLS conserve ce titre.
+
+Les 104 semaines précédant le début du backtest demeurent disponibles pour estimer les signaux, mais **ne produisent pas d'alertes critiques dans ce tableau**. Les alertes non critiques et les événements hors période ne font pas partie de l'interface simplifiée. La mise en garde et le CSV rappellent le caractère rétrospectif de ces exclusions.
+
+Les registres antérieurs sont compatibles tant que les mêmes événements critiques et les mêmes couples de prix sont retrouvés : leur action `EXCLUDE_BACKTEST_RETRO` est regroupée automatiquement au niveau du titre. Les anciens événements hors période ne sont pas réappliqués. Sans backtest, l'étape 1 ne bloque pas le calcul du snapshot LPPLS.
+
+Aucune règle de rendement, aucun filtre de vente automatique, aucun paramètre de grille LPPLS ou de pondération n'est modifié.
