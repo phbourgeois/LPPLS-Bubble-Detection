@@ -115,6 +115,16 @@ else:
             f"{len(merged)} alertes sur {merged.asset.nunique()} titres, "
             f"dont {n_critical} critiques. Les alertes ne prouvent pas une erreur."
         )
+        if len(merged):
+            overview = (
+                merged.groupby("asset", as_index=False)
+                .agg(n_alerts=("event_id", "count"),
+                     largest_abs_weekly_or_daily_move_pct=(
+                         "return_pct", lambda x: x.abs().max()))
+                .sort_values("n_alerts", ascending=False)
+            )
+            with st.expander("Résumé des anomalies par titre"):
+                st.dataframe(overview, use_container_width=True, hide_index=True)
         if old_decisions is not None:
             st.success(
                 f"{int((merged.compatibility == 'MATCH').sum())} décisions compatibles réutilisées. "
@@ -132,7 +142,8 @@ else:
             editor_data["exclude_asset_retro"] = editor_data.action.eq("EXCLUDE_ASSET_RETRO")
             editor_data.loc[editor_data.exclude_asset_retro, "action"] = "REVIEW"
             show_columns = [
-                "event_id", "asset", "date", "frequency", "kind", "return_pct",
+                "event_id", "asset", "date", "frequency", "kind",
+                "previous_price", "observed_price", "return_pct",
                 "gap_weeks", "severity", "action", "exclude_asset_retro", "reason",
                 "evidence", "published_at", "compatibility",
             ]
@@ -145,8 +156,12 @@ else:
                 editor_data[show_columns], hide_index=True, use_container_width=True,
                 height=480, num_rows="fixed", key="review_" + audit_key,
                 disabled=["event_id","asset","date","frequency","kind",
-                          "return_pct","gap_weeks","severity","compatibility"],
+                          "previous_price","observed_price","return_pct",
+                          "gap_weeks","severity","compatibility"],
                 column_config={
+                    "event_id": None,
+                    "previous_price": st.column_config.NumberColumn("Cours précédent", format="%.5f"),
+                    "observed_price": st.column_config.NumberColumn("Cours observé", format="%.5f"),
                     "action": st.column_config.SelectboxColumn(
                         "Décision", options=["REVIEW", "KEEP", "BLOCK_ASOF"], required=True),
                     "exclude_asset_retro": st.column_config.CheckboxColumn(
