@@ -10,6 +10,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent / "src"))
 from lppls_bubble import DEFAULT_WINDOWS, run_snapshot, BacktestSettings, run_backtest, REFERENCE_ENGINE
 from lppls_bubble.reports import make_html, make_pdf
 from lppls_bubble.delivery import build_delivery_zip
+from lppls_bubble.lppls_fit import GRID_VERSION, GRID_SIZE
 from lppls_bubble.statistical import StatisticalConfig, decide_asof
 import numpy as np
 import pandas as pd
@@ -19,7 +20,7 @@ st.title("LPPLS - Detection de bulles multi-echelles")
 # Persist the last complete archive across Streamlit reruns (including the download click).
 if "lppls_delivery_zip" not in st.session_state:
     st.session_state["lppls_delivery_zip"] = None
-st.caption(f"Moteur de reference : {REFERENCE_ENGINE} (snapshot et backtest) ; alternative conservee en recherche.")
+st.caption(f"Moteur de référence : {REFERENCE_ENGINE} ; grille LPPLS approfondie unique ({GRID_SIZE} combinaisons), commune au snapshot et au backtest.")
 st.warning("Validation scientifique non acquise : sur 40 marches aleatoires simulees, les 40 fits LPPLS passaient le filtre de validite historique. Ne pas utiliser comme signal de trading autonome.")
 
 @st.cache_data(show_spinner="Calcul LPPLS en cours...")
@@ -194,6 +195,8 @@ if submitted:
             params = {
                 "windows_weeks": tuple(sorted(selected)),
                 "reference_engine": REFERENCE_ENGINE,
+                "lppls_grid_version": GRID_VERSION,
+                "lppls_grid_candidates_per_fit": GRID_SIZE,
                 "backtest_requested": bool(run_bt),
                 "statistical_requested": bool(run_statistical),
             }
