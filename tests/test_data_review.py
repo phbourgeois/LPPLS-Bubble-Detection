@@ -163,16 +163,16 @@ def test_backtest_only_checkbox_preserves_snapshot_universe(tmp_path):
 
 def test_uploaded_registry_formats_are_recognised_and_not_interchangeable():
     decisions = (
-        b"event_id,asset,date,frequency,kind,price_fingerprint,action,reason\\n"
-        b"1,ATOS,2024-12-06,WEEKLY,EXTREME_RETURN,abc,REVIEW,\\n"
+        b"event_id,asset,date,frequency,kind,price_fingerprint,action,reason\n"
+        b"1,ATOS,2024-12-06,WEEKLY,EXTREME_RETURN,abc,REVIEW,\n"
     )
     events = (
-        b"asset,published_at,action,source\\n"
-        b"ATOS,2024-12-06,BLOCK,https://example.org/notice\\n"
+        b"asset,published_at,action,source\n"
+        b"ATOS,2024-12-06,BLOCK,https://example.org/notice\n"
     )
     assert classify_uploaded_registry(decisions) == "decisions"
     assert classify_uploaded_registry(events) == "events"
     with pytest.raises(ValueError, match="Format de registre non reconnu"):
-        classify_uploaded_registry(b"asset,action\\nATOS,BLOCK\\n")
+        classify_uploaded_registry(b"asset,action\nATOS,BLOCK\n")
     with pytest.raises(ValueError, match="vide"):
         classify_uploaded_registry(b"")
