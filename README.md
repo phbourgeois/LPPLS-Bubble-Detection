@@ -131,3 +131,18 @@ Les 104 semaines précédant le début du backtest demeurent disponibles pour es
 Les registres antérieurs sont compatibles tant que les mêmes événements critiques et les mêmes couples de prix sont retrouvés : leur action `EXCLUDE_BACKTEST_RETRO` est regroupée automatiquement au niveau du titre. Les anciens événements hors période ne sont pas réappliqués. Sans backtest, l'étape 1 ne bloque pas le calcul du snapshot LPPLS.
 
 Aucune règle de rendement, aucun filtre de vente automatique, aucun paramètre de grille LPPLS ou de pondération n'est modifié.
+
+
+## Comparaison benchmark et variantes MIXED_SCALES (5 novembre 2026)
+
+Le backtest calcule maintenant **cinq stratégies comparées** à partir des mêmes signaux à date, dates hebdomadaires, cours, univers d'investissement et frais : Long-only original, Long/Short original, benchmark équipondéré sur les titres éligibles, Mixed Long-only, Mixed Long/Short. La grille LPPLS approfondie commune de **343 combinaisons** reste inchangée.
+
+**Une seule modification directionnelle dans les variantes Mixed :** les titres `MIXED_SCALES` ayant `DOWN court / UP long`, auparavant achetés dans le modèle original, sont exclus des achats du Mixed Long-only et vendus à découvert dans le Mixed Long/Short. Les autres titres mixtes gardent la classification et le traitement d'origine. Les achats restent pondérés en inverse-volatilité 52 semaines ; les shorts conservent le score LPPLS, sans nouvelle limite ou filtre.
+
+Le benchmark n'est **pas** le SBF 120 officiel : il est équipondéré sur l'univers filtré **actuellement disponible**, après historique admissible de 104 semaines. Le benchmark est 100 % long et n'a donc pas la même exposition nette que le Long/Short.
+
+Les rapports HTML et PDF incluent maintenant les **titres exclus, leur raison, leurs dates d'anomalies, la taille des univers snapshot/backtest, la qualification RETROSPECTIVE_SENSITIVITY**, la comparaison des cinq performances et leurs NAV. Les sorties `backtest_comparison_*.csv` et `backtest_comparison_nav.png` sont intégrées au ZIP.
+
+Sécurité comptable : le moteur de comparaison rejoue les deux stratégies originales et **interrompt l'analyse** si les NAV ne se réconcilient pas à la tolérance `1e-10`. Les performances historiques calculées sur un univers exclu rétrospectivement **ne sont pas des résultats causalement investissables**.
+
+Consulter [la documentation et le protocole de recette](docs/CONTROLLED_BACKTEST_COMPARISON_2026_11_05.md). Commits `[skip ci]` ; pas de GitHub Actions lancé.
