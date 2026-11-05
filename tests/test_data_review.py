@@ -10,7 +10,7 @@ import pytest
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 from lppls_bubble.data_review import (
     ACTIONS, FIELDS, audit_prices, read_decisions,
-    merge_previous_decisions, validate_and_apply,
+    merge_previous_decisions, validate_and_apply, classify_uploaded_registry,
 )
 from lppls_bubble.prices import read_prices
 
@@ -159,3 +159,20 @@ def test_backtest_only_checkbox_preserves_snapshot_universe(tmp_path):
     bt_path.write_bytes(backtest_csv)
     assert set(read_prices(bt_path).columns) == {"B"}
     assert label == "RETROSPECTIVE_SENSITIVITY"
+
+
+def test_uploaded_registry_formats_are_recognised_and_not_interchangeable():
+    decisions = (
+        b"event_id,asset,date,frequency,kind,price_fingerprint,action,reason\\n"
+        b"1,ATOS,2024-12-06,WEEKLY,EXTREME_RETURN,abc,REVIEW,\\n"
+    )
+    events = (
+        b"asset,published_at,action,source\\n"
+        b"ATOS,2024-12-06,BLOCK,https://example.org/notice\\n"
+    )
+    assert classify_uploaded_registry(decisions) == "decisions"
+    assert classify_uploaded_registry(events) == "events"
+    with pytest.raises(ValueError, match="Format de registre non reconnu"):
+        classify_uploaded_registry(b"asset,action\\nATOS,BLOCK\\n")
+    with pytest.raises(ValueError, match="vide"):
+        classify_uploaded_registry(b"")
