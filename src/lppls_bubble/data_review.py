@@ -181,11 +181,15 @@ def apply_title_decisions(
         raise ValueError("Le tableau des titres ne couvre pas les anomalies critiques")
     choice = title_choices.set_index("asset")
     excluded = set(choice.index[choice.exclude_backtest.astype(bool)])
-    # No invisible per-event exclusions when the user unchecks a title.
-    result["action"] = "REVIEW"
-    result["reason"] = ""
-    result["evidence"] = ""
-    result["published_at"] = ""
+    # Preserve previously validated KEEP and documented as-of decisions.
+    # Only lift existing retrospective exclusions when the user unchecks a
+    # title; this is essential for backward compatibility with saved CSVs.
+    old_exclusions = result.action.isin(
+        ("EXCLUDE_BACKTEST_RETRO", "EXCLUDE_ASSET_RETRO")
+    )
+    removed = old_exclusions & ~result.asset.isin(excluded)
+    result.loc[removed, "action"] = "REVIEW"
+    result.loc[removed, ["reason", "evidence", "published_at"]] = ""
     for asset in excluded:
         reason = str(choice.at[asset, "reason"]).strip()
         if not reason:
