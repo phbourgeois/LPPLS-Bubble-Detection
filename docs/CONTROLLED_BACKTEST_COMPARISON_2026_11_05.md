@@ -20,10 +20,10 @@ Le ZIP de référence sur SBF 120 conserve 120 titres pour le snapshot, mais seu
 | `original_long_only` | Tous sauf COHERENT_MULTI_UP | Aucun | Inverse-volatilité 52 semaines |
 | `original_long_short` | Tous sauf COHERENT_MULTI_UP | COHERENT_MULTI_UP | Achats inverse-volatilité, shorts score LPPLS |
 | `benchmark_equal_weight` | Tous les titres éligibles | Aucun | Équipondération |
-| `mixed_long_only` | COHERENT_MULTI_DOWN, NO_BUBBLE et MIXED si court UP / long DOWN | Aucun | **Même inverse-volatilité** |
-| `mixed_long_short` | Même poche acheteuse que ci-dessus | COHERENT_MULTI_UP et MIXED si court DOWN / long UP | **Même inverse-volatilité à l'achat**, **même score LPPLS à la vente** |
+| `mixed_long_only` | Tous les achats de l'original SAUF les MIXED court DOWN / long UP | Aucun | **Même inverse-volatilité** |
+| `mixed_long_short` | Tous les achats de l'original SAUF les MIXED court DOWN / long UP | COHERENT_MULTI_UP et MIXED court DOWN / long UP | **Même inverse-volatilité à l'achat**, **même score LPPLS à la vente** |
 
-Les MIXED dont le signal court ou long est NONE/MIXED ne sont pas introduits par force dans les nouvelles poches. La poche L/S utilise les mêmes objectifs que l'original (50 % long et −50 % short lorsqu'il existe des titres vendeurs ; sinon 100 % long). Aucune volatilité cible, aucun plafond, aucun coût de prêt ni filtre statistique nouveau n'est ajouté.
+Les MIXED ambigus conservent explicitement leur traitement d'origine, en achat. Les titres court UP/long DOWN étaient déjà achetés : ils le restent. **Seuls les titres court DOWN/long UP changent de traitement.** La poche L/S utilise les mêmes objectifs que l'original (50 % long et −50 % short lorsqu'il existe des titres vendeurs ; sinon 100 % long). Aucune volatilité cible, aucun plafond, aucun coût de prêt ni filtre statistique nouveau n'est ajouté.
 
 **Important :** le benchmark 100 % long et le Long/Short proche de zéro net ne portent pas le même risque de marché. Cette comparaison contextualise les rendements ; elle ne permet pas d'attribuer les écarts uniquement à la qualité des signaux sans tests complémentaires de neutralisation du bêta.
 
@@ -54,8 +54,8 @@ Les rapports **HTML et PDF** intègrent dès leur début l'univers effectivement
 | Original Long-only | +9,61 % |
 | Original Long/Short | −2,71 % |
 | Benchmark équipondéré (même univers) | +19,41 % |
-| Mixed Long-only | +0,65 % |
-| Mixed Long/Short | −9,12 % |
+| Mixed Long-only | +6,74 % |
+| Mixed Long/Short | −6,58 % |
 
 Les deux stratégies originales sont reproduites par le rejeu indépendant au seuil `2e-15`. Ce premier essai confirme **qu'aucun gain systématique ne doit être présumé** des règles mixtes directionnelles ; il n'est pas une démonstration de robustesse, et les titres ont été exclus rétrospectivement.
 
