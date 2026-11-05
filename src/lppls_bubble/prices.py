@@ -31,15 +31,21 @@ def read_prices(path: str | Path) -> pd.DataFrame:
                 continue
             if raw.shape[1] < 2 or raw.empty:
                 continue
-            # ISO dates must be parsed year-first, not with dayfirst=True:
-            # 2007-01-05 is January 5, not May 1.
-            tokens = raw.iloc[:, 0].dropna().astype(str).str.strip().head(15)
-            if len(tokens) and tokens.str.fullmatch(r'\d{4}-\d{1,2}-\d{1,2}').mean() >= 0.8:
-                dates = pd.to_datetime(raw.iloc[:, 0], format='%Y-%m-%d', errors='coerce')
-            elif len(tokens) and tokens.str.fullmatch(r'\d{1,2}/\d{1,2}/\d{4}').mean() >= 0.8:
-                dates = pd.to_datetime(raw.iloc[:, 0], format='%d/%m/%Y', errors='coerce')
+            # Year-first MUST be explicit also for YYYY/MM/DD (pandas with
+            # dayfirst=True silently swaps ambiguous month/day, then drops
+            # many weekly rows). Never infer locale from the user's machine.
+            full = raw.iloc[:, 0].astype('string').str.strip()
+            tokens = full.dropna().head(30)
+            if len(tokens) and tokens.str.fullmatch(r'\d{4}[-/.]\d{1,2}[-/.]\d{1,2}').mean() >= 0.8:
+                normalized = full.str.replace(r'[/\\.]', '-', regex=True)
+                dates = pd.to_datetime(normalized, format='%Y-%m-%d', errors='coerce')
+            elif len(tokens) and tokens.str.fullmatch(r'\d{1,2}[/.-]\d{1,2}[/.-]\d{4}').mean() >= 0.8:
+                normalized = full.str.replace(r'[-\\.]', '/', regex=True)
+                dates = pd.to_datetime(normalized, format='%d/%m/%Y', errors='coerce')
+            elif len(tokens) and tokens.str.fullmatch(r'\d{8}').mean() >= 0.8:
+                dates = pd.to_datetime(full, format='%Y%m%d', errors='coerce')
             else:
-                dates = pd.to_datetime(raw.iloc[:, 0], dayfirst=True, errors='coerce')
+                dates = pd.to_datetime(full, dayfirst=True, errors='coerce')
             fraction = float(dates.notna().mean())
             # Prefer parsing the full file over skipping 3 lines when both work.
             if best is None or fraction > best[0]:
