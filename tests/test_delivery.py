@@ -89,7 +89,8 @@ def test_review_files_are_preserved_in_unique_zip():
     audit = {
         "data_quality_anomalies.csv": b"event_id,asset,date\\n1,A,2024-01-05\\n",
         "data_quality_decisions.csv": b"event_id,asset,date,action\\n1,A,2024-01-05,KEEP\\n",
-        "analyzed_prices.csv": b"Date;A\\n2024-01-05;100\\n",
+        "snapshot_prices.csv": b"Date;A\\n2024-01-05;100\\n",
+        "backtest_prices.csv": b"Date;B\\n2024-01-05;90\\n",
     }
     data = build_delivery_zip(
         {"portfolio_construction.csv": b"asset,weight\\nA,1\\n"},
@@ -101,5 +102,5 @@ def test_review_files_are_preserved_in_unique_zip():
         assert files["audit/" + name] == value
     assert files["donnees/source.csv"] == b"original source bytes"
     manifest = json.loads(files["manifest.json"])
-    assert manifest["file_count"] == 5
+    assert manifest["file_count"] == 6
     assert manifest["parameters"]["data_review_study_type"] == "RETROSPECTIVE_SENSITIVITY"
