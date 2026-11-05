@@ -234,10 +234,20 @@ else:
                 },
             )
             with st.expander("Détail des anomalies critiques par titre"):
+                detail_asset = st.selectbox(
+                    "Afficher les événements de", ["Tous les titres", *by_title.asset.tolist()],
+                    key="critical_asset_details_" + audit_key,
+                )
+                visible_events = (
+                    merged if detail_asset == "Tous les titres"
+                    else merged.loc[merged.asset.eq(detail_asset)]
+                )
                 st.dataframe(
-                    merged[["asset", "date", "frequency", "kind",
-                            "previous_price", "observed_price", "return_pct",
-                            "severity"]],
+                    visible_events.sort_values(["asset", "date", "frequency"])[
+                        ["asset", "date", "frequency", "kind",
+                         "previous_price", "observed_price", "return_pct",
+                         "severity"]
+                    ],
                     use_container_width=True, hide_index=True,
                 )
             reviewed = apply_title_decisions(merged, edited_titles)
