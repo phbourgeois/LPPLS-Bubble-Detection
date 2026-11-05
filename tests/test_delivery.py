@@ -83,3 +83,23 @@ def test_rejects_non_binary_outputs_or_missing_snapshot():
         build_delivery_zip({})
     with pytest.raises(TypeError, match="bytes"):
         build_delivery_zip({"a.csv": "not bytes"})
+
+
+def test_review_files_are_preserved_in_unique_zip():
+    audit = {
+        "data_quality_anomalies.csv": b"event_id,asset,date\\n1,A,2024-01-05\\n",
+        "data_quality_decisions.csv": b"event_id,asset,date,action\\n1,A,2024-01-05,KEEP\\n",
+        "analyzed_prices.csv": b"Date;A\\n2024-01-05;100\\n",
+    }
+    data = build_delivery_zip(
+        {"portfolio_construction.csv": b"asset,weight\\nA,1\\n"},
+        audit_exports=audit, source_csv=b"original source bytes",
+        parameters={"data_review_study_type": "RETROSPECTIVE_SENSITIVITY"},
+    )
+    files = read_archive(data)
+    for name, value in audit.items():
+        assert files["audit/" + name] == value
+    assert files["donnees/source.csv"] == b"original source bytes"
+    manifest = json.loads(files["manifest.json"])
+    assert manifest["file_count"] == 5
+    assert manifest["parameters"]["data_review_study_type"] == "RETROSPECTIVE_SENSITIVITY"
