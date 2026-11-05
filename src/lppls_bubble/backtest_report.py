@@ -208,7 +208,7 @@ backtest_quality_weekly_alerts.csv ; backtest_summary_metrics.csv ; backtest_por
     paragraph(f"Frais paramétrés : {float(metrics.fees_bps.iloc[0]):.3f} points de base ; pas de coût d'emprunt short.")
     paragraph("2. Univers et exclusions", "Heading2")
     paragraph(f"Statut: {study_type}. {asset_summary}")
-    paragraph("Les exclusions retropsectives ne constituent PAS une regle sans anticipation. Les portefeuilles instantanes LPPLS peuvent conserver des titres exclus du backtest.")
+    paragraph("Les exclusions retrospectivement decidees ne constituent PAS une regle sans anticipation. Les portefeuilles instantanes LPPLS peuvent conserver des titres exclus du backtest.")
     pdf_table(excluded, columns=["asset", "scope", "classification"], n=30)
     paragraph("3. Performances historiques", "Heading2")
     pdf_table(performance, n=len(performance))
@@ -216,10 +216,15 @@ backtest_quality_weekly_alerts.csv ; backtest_summary_metrics.csv ; backtest_por
     paragraph("Benchmark: equipondere sur les titres eligibles du MEME univers, avec les MEMES dates et frais. Ce n'est pas un indice officiel.")
     paragraph("Signaux mixtes: achat court UP/long DOWN ; vente court DOWN/long UP. Les autres MIXED sont exclus des nouvelles poches. Ponderations d'origine preservees.")
     if not comparison_table.empty:
-        pdf_table(comparison_table[[
+        pdf_metrics = comparison_table[[
             "strategy", "total_return", "annualized_volatility",
             "sharpe_rf_zero", "max_drawdown",
-        ]], n=10)
+        ]].rename(columns={
+            "strategy": "Scenario", "total_return": "Rend. total",
+            "annualized_volatility": "Vol. ann.",
+            "sharpe_rf_zero": "Sharpe", "max_drawdown": "Drawdown",
+        })
+        pdf_table(pdf_metrics, n=10)
     if comparison_plot:
         elements.append(Image(str(output / "backtest_comparison_nav.png"),
                               width=500, height=250, kind="proportional"))
