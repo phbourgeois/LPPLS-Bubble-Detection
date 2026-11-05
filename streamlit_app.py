@@ -139,18 +139,19 @@ else:
             reviewed = merged
         else:
             editor_data = merged.copy()
-            editor_data["exclude_asset_retro"] = editor_data.action.eq("EXCLUDE_ASSET_RETRO")
-            editor_data.loc[editor_data.exclude_asset_retro, "action"] = "REVIEW"
+            editor_data["exclude_backtest_retro"] = editor_data.action.eq("EXCLUDE_BACKTEST_RETRO")
+            editor_data.loc[editor_data.exclude_backtest_retro, "action"] = "REVIEW"
             show_columns = [
                 "event_id", "asset", "date", "frequency", "kind",
                 "previous_price", "observed_price", "return_pct",
-                "gap_weeks", "severity", "action", "exclude_asset_retro", "reason",
+                "gap_weeks", "severity", "action", "exclude_backtest_retro", "reason",
                 "evidence", "published_at", "compatibility",
             ]
             st.caption(
-                "Coche « Exclure titre (rétro) » pour retirer entièrement un actif des "
-                "estimations ET du backtest : le résultat devient une analyse de sensibilité. "
-                "BLOCK_ASOF bloque uniquement les nouvelles positions après une publication documentée."
+                "Coche « Exclure du backtest (rétro) » pour retirer entièrement un titre "
+                "du backtest, tout en le conservant dans les diagnostics LPPLS. "
+                "Pour le retirer aussi des estimations, choisis EXCLUDE_ASSET_RETRO. "
+                "Ces exclusions rétrospectives ne sont pas des décisions causales."
             )
             edited = st.data_editor(
                 editor_data[show_columns], hide_index=True, use_container_width=True,
@@ -163,9 +164,9 @@ else:
                     "previous_price": st.column_config.NumberColumn("Cours précédent", format="%.5f"),
                     "observed_price": st.column_config.NumberColumn("Cours observé", format="%.5f"),
                     "action": st.column_config.SelectboxColumn(
-                        "Décision", options=["REVIEW", "KEEP", "BLOCK_ASOF"], required=True),
-                    "exclude_asset_retro": st.column_config.CheckboxColumn(
-                        "Exclure titre (rétro)", default=False),
+                        "Décision", options=["REVIEW", "KEEP", "BLOCK_ASOF", "EXCLUDE_ASSET_RETRO"], required=True),
+                    "exclude_backtest_retro": st.column_config.CheckboxColumn(
+                        "Exclure du backtest (rétro)", default=False),
                     "return_pct": st.column_config.NumberColumn("Variation (%)", format="%.2f"),
                     "gap_weeks": st.column_config.NumberColumn("Semaines manquantes", format="%d"),
                 },
@@ -173,7 +174,7 @@ else:
             reviewed = merged.copy()
             for field in ("action", "reason", "evidence", "published_at"):
                 reviewed[field] = edited[field].to_numpy()
-            reviewed.loc[edited.exclude_asset_retro.to_numpy(dtype=bool), "action"] = "EXCLUDE_ASSET_RETRO"
+            reviewed.loc[edited.exclude_backtest_retro.to_numpy(dtype=bool), "action"] = "EXCLUDE_BACKTEST_RETRO"
             changed = reviewed.compatibility.eq("CHANGED_PRICE_REVIEW")
             if changed.any():
                 reconfirm = st.checkbox(
@@ -261,9 +262,8 @@ if submitted:
             with tempfile.TemporaryDirectory(prefix="lppls_reviewed_") as folder:
                 source_path = Path(folder) / "source.csv"
                 source_path.write_bytes(source_payload)
-                _, analysed_payload, reviewed_events, retro_exclusions, study_type = (
-                    validate_and_apply(reviewed, source_path)
-                )
+                (_, snapshot_payload, backtest_payload, reviewed_events,
+                 retro_exclusions, study_type) = validate_and_apply(reviewed, source_path)
             existing_events = (bt_events.getvalue() if run_bt and bt_events is not None else None)
             event_payload = combine_documented_events(reviewed_events, existing_events)
             effective_quality_policy = (
@@ -271,7 +271,7 @@ if submitted:
                 bt_quality if run_bt else "audit"
             )
             weekly,bubbles,details,portfolio,exports = calculate(
-                analysed_payload, tuple(sorted(selected))
+                snapshot_payload, tuple(sorted(selected))
             )
         except Exception as exc:
             st.error(f"Calcul impossible : {exc}")
@@ -280,12 +280,14 @@ if submitted:
             if study_type == "RETROSPECTIVE_SENSITIVITY":
                 st.warning(
                     f"Analyse de sensibilité rétrospective : {len(retro_exclusions)} titre(s) "
-                    "exclu(s) sur tout l'historique. Cela ne constitue pas un backtest causal."
+                    "exclu(s) sur tout l'historique, selon le périmètre retenu "
+                    "(backtest seul ou ensemble des estimations). Ce n'est pas un backtest causal."
                 )
             audit_exports = {
                 "data_quality_anomalies.csv": anomalies[FIELDS].to_csv(index=False).encode("utf-8"),
                 "data_quality_decisions.csv": reviewed[FIELDS].to_csv(index=False).encode("utf-8"),
-                "analyzed_prices.csv": analysed_payload,
+                "snapshot_prices.csv": snapshot_payload,
+                "backtest_prices.csv": backtest_payload,
                 "excluded_assets.csv": retro_exclusions.to_csv(index=False).encode("utf-8"),
                 "previous_rules_not_reapplied.csv": old_orphans.to_csv(index=False).encode("utf-8"),
             }
@@ -347,7 +349,7 @@ if submitted:
                 st.info("Les notebooks d'origine sont archives dans le depot. Le nouveau backtest exclut la selection avec cours futurs et suit les poids qui derivent entre rebalancements ; il est donc DIFFERENT de l'ancien backtest.")
                 try:
                     bt_nav, bt_metrics, bt_states, bt_lo, bt_ls, bt_quality_history, bt_weighting_policy, bt_weekly_alerts, bt_reconciliation, bt_exports = calculate_backtest(
-                        analysed_payload, tuple(sorted(selected)), bt_start.isoformat(),
+                        backtest_payload, tuple(sorted(selected)), bt_start.isoformat(),
                         int(bt_hold), int(bt_periods) if bt_periods is not None else None, float(bt_fees),
                         effective_quality_policy, event_payload)
                 except Exception as exc:
@@ -390,6 +392,12 @@ if submitted:
                 "lppls_grid_candidates_per_fit": GRID_SIZE,
                 "data_review_study_type": study_type,
                 "retrospectively_excluded_assets": retro_exclusions.asset.tolist(),
+                "snapshot_excluded_assets": retro_exclusions.loc[
+                    retro_exclusions.scope == "SNAPSHOT_AND_BACKTEST", "asset"
+                ].tolist(),
+                "backtest_only_excluded_assets": retro_exclusions.loc[
+                    retro_exclusions.scope == "BACKTEST_ONLY", "asset"
+                ].tolist(),
                 "data_review_anomaly_count": int(len(anomalies)),
                 "data_review_unresolved_count": int((reviewed.action == "REVIEW").sum()),
                 "backtest_requested": bool(run_bt),
