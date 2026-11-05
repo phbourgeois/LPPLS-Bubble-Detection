@@ -46,6 +46,35 @@ def write_backtest_reports(result: dict) -> None:
     metrics, nav = result["metrics"], result["nav"]
     attribution, reconciliation = result["attribution"], result["reconciliation"]
     alerts = result["quality_weekly_alerts"]
+    context = result.get("report_context") or {}
+    comparison = result.get("comparison")
+    excluded = pd.DataFrame(context.get("excluded_assets", []))
+    if excluded.empty:
+        excluded = pd.DataFrame(columns=["asset", "scope", "classification"])
+    study_type = str(context.get("study_type", "UNDECLARED_SOURCE_SCOPE"))
+    asset_summary = (
+        f"Source : {context.get('source_asset_count', 'n.d.')} actifs ; "
+        f"snapshot : {context.get('snapshot_assets', 'n.d.')} ; "
+        f"backtest : {context.get('backtest_assets', 'n.d.')}."
+    )
+    comparison_table = pd.DataFrame()
+    comparison_plot = ""
+    if comparison is not None:
+        comparison_table = comparison["metrics"][[
+            "strategy", "total_return", "annualized_return",
+            "annualized_volatility", "sharpe_rf_zero", "max_drawdown",
+        ]].copy()
+        for col in ("total_return", "annualized_return",
+                    "annualized_volatility", "max_drawdown"):
+            comparison_table[col] = comparison_table[col].map(
+                lambda x: f"{100*x:+.2f} %" if pd.notna(x) else "n.d."
+            )
+        comparison_table["sharpe_rf_zero"] = comparison_table["sharpe_rf_zero"].map(
+            lambda x: f"{x:.3f}" if pd.notna(x) else "n.d."
+        )
+        comparison_plot = base64.b64encode(
+            (output / "backtest_comparison_nav.png").read_bytes()
+        ).decode("ascii")
     performance = _performance_table(metrics)
     top = _largest_contributions(attribution)
     concentrations = (
@@ -88,30 +117,51 @@ Les décisions à t utilisent seulement les prix jusqu'à t ; les positions infl
 Les titres sont détenus et les poids dérivent entre rééquilibrages.</p>
 <p>Pondération acheteuse inverse de la volatilité hebdomadaire des 52 dernières semaines ; ventes à découvert pondérées par score LPPLS.
 Frais de transaction paramétrés : {float(metrics.fees_bps.iloc[0]):.3f} points de base. Financement/emprunt des titres shorts non modélisés.</p>
-<h2>2. Rendement et risque</h2>{html_table(performance)}
-<h2>3. Évolution des deux NAV</h2><img alt="NAV Long-only et Long/Short" src="data:image/png;base64,{graph}">
-<h2>4. Attribution des rendements</h2>
+<h2>2. Univers, exclusions et nature de l'étude</h2>
+<p class="note"><b>Statut : {escape(study_type)}.</b> {escape(asset_summary)}
+Les exclusions rétrospectives reposent sur des événements observés sur la période entière :
+elles ne sont PAS une règle investissable en temps réel et ne doivent pas être confondues
+avec un filtrage causal aux dates de décision.</p>
+<h3>Titres exclus</h3>{html_table(excluded)}
+<p>Le snapshot LPPLS peut conserver des titres retirés uniquement du backtest ;
+ses portefeuilles instantanés ne représentent alors pas l'univers effectivement testé.</p>
+<h2>3. Rendement et risque des stratégies historiques</h2>{html_table(performance)}
+<h2>4. Évolution des deux NAV historiques</h2><img alt="NAV Long-only et Long/Short" src="data:image/png;base64,{graph}">
+<h2>5. Benchmark et variantes MIXED_SCALES</h2>
+<p>Benchmark équipondéré sur les mêmes titres éligibles avec au moins 104 semaines
+de cours, aux mêmes décisions que les stratégies originales, avec les mêmes frais.
+Il ne s'agit pas du SBF 120 total-return ni d'un indice de marché officiel.</p>
+<p>Variantes mixtes : conserver les achats de l'original sauf les titres court DOWN / long UP ;
+en Long/Short, ces titres passent dans la poche vendeuse avec les COHERENT_UP.
+Les autres MIXED restent achetés comme dans l'original, afin de ne modifier qu'une règle directionnelle.
+Achats pondérés par inverse-volatilité 52 semaines ; shorts pondérés selon
+priority_score LPPLS. Poche acheteuse et vendeuse 50/50 lorsque des shorts
+sont présents, comme le modèle original. Aucune limite de poids nouvelle.</p>
+<p>Cette comparaison est exploratoire et ne prouve pas la capacité prédictive des signaux.</p>
+{html_table(comparison_table)}
+{f'<img alt="Comparaison cinq NAV" src="data:image/png;base64,{comparison_plot}">' if comparison_plot else ''}
+<h2>6. Attribution des rendements</h2>
 <p>Contribution hebdomadaire de chaque titre = poids avant rendement × rendement du titre.
 Les frais sont comptabilisés séparément, y compris l'effet de leur application après rendement.
 Écart maximal de rapprochement aux NAV : <b>{max_error:.3g}</b>.</p>
 <h3>Principales contributions absolues</h3>{html_table(top)}
-<h2>5. Qualité des données : observations hebdomadaires</h2>
+<h2>7. Qualité des données : observations hebdomadaires</h2>
 <p class="note">{escape(warning)} Les alertes sont enregistrées même entre les dates de rééquilibrage.
 Aucune observation extrême n'est exclue ou corrigée automatiquement.</p>
 {html_table(alerts.head(50))}
-<h2>6. Expositions et concentration</h2>
+<h2>8. Expositions et concentration</h2>
 <p>Les expositions acheteuses et vendeuses sont mesurées avant les rendements de chaque semaine ;
 les poids peuvent dériver même sans transaction. Le tableau de concentration retient la plus grande
 position individuelle en valeur absolue.</p>
 <h3>Concentrations les plus élevées</h3>{html_table(concentrations)}
 <h3>Dernières expositions hebdomadaires</h3>{html_table(exposures)}
-<h2>7. Risques et limites</h2>
+<h2>9. Risques et limites</h2>
 <p>Les hausses exceptionnelles peuvent créer une forte concentration entre deux décisions malgré une pondération initiale inverse-volatilité.
 La performance ne représente pas nécessairement un portefeuille investissable : prix ajustés, composition historique de l'univers, coût d'emprunt et traitement des radiations restent à certifier.</p>
-<p>Les règles non tranchées (plafonds, quarantaine, pondération des shorts harmonisée et stratégie MIXED_SCALES) ne sont pas appliquées.</p>
-<h2>8. Fichiers pour audit</h2>
+<p>Les plafonds, quarantaines et pondérations harmonisées des shorts ne sont pas appliqués. Les variantes MIXED_SCALES sont comparées à titre expérimental, sans remplacer les stratégies historiques.</p>
+<h2>10. Fichiers pour audit</h2>
 <p>backtest_nav_weekly.csv ; backtest_attribution_weekly.csv ; backtest_reconciliation.csv ;
-backtest_quality_weekly_alerts.csv ; backtest_summary_metrics.csv ; backtest_portfolios_*_weights.csv.</p>
+backtest_quality_weekly_alerts.csv ; backtest_summary_metrics.csv ; backtest_portfolios_*_weights.csv ; backtest_comparison_*.csv ; backtest_comparison_nav.png.</p>
 </body></html>"""
     (output / "backtest_report.html").write_text(html, encoding="utf-8")
 
@@ -156,30 +206,58 @@ backtest_quality_weekly_alerts.csv ; backtest_summary_metrics.csv ; backtest_por
     paragraph("1. Hypothèses", "Heading2")
     paragraph("Décision à la clôture et application à compter de la semaine suivante ; conservation des titres entre les décisions ; achats inverse-volatilité, shorts score LPPLS.")
     paragraph(f"Frais paramétrés : {float(metrics.fees_bps.iloc[0]):.3f} points de base ; pas de coût d'emprunt short.")
-    paragraph("2. Performances", "Heading2")
+    paragraph("2. Univers et exclusions", "Heading2")
+    paragraph(f"Statut: {study_type}. {asset_summary}")
+    paragraph("Les exclusions retrospectivement decidees ne constituent PAS une regle sans anticipation. Les portefeuilles instantanes LPPLS peuvent conserver des titres exclus du backtest.")
+    pdf_table(excluded, columns=["asset", "scope", "classification"], n=30)
+    for record in context.get("excluded_assets", []):
+        paragraph(
+            f"{record.get('asset', '?')} — anomalies : "
+            f"{record.get('anomaly_dates', 'non documentées')} ; "
+            f"amplitude maximale : {record.get('max_abs_anomaly_return_pct', 'n.d.')} % ; "
+            f"justification : {record.get('justification', 'non renseignée')}"
+        )
+    paragraph("3. Performances historiques", "Heading2")
     pdf_table(performance, n=len(performance))
-    paragraph("3. Comparaison des NAV", "Heading2")
+    paragraph("4. Benchmark et signaux MIXED_SCALES", "Heading2")
+    paragraph("Benchmark: equipondere sur les titres eligibles du MEME univers, avec les MEMES dates et frais. Ce n'est pas un indice officiel.")
+    paragraph("Signaux mixtes: seuls les titres court DOWN/long UP passent de l'achat a l'exclusion ou a la vente. Les autres MIXED restent traites comme dans l'original. Ponderations d'origine preservees.")
+    if not comparison_table.empty:
+        pdf_metrics = comparison_table[[
+            "strategy", "total_return", "annualized_volatility",
+            "sharpe_rf_zero", "max_drawdown",
+        ]].rename(columns={
+            "strategy": "Scenario", "total_return": "Rend. total",
+            "annualized_volatility": "Vol. ann.",
+            "sharpe_rf_zero": "Sharpe", "max_drawdown": "Drawdown",
+        })
+        pdf_table(pdf_metrics, n=10)
+    if comparison_plot:
+        elements.append(Image(str(output / "backtest_comparison_nav.png"),
+                              width=500, height=250, kind="proportional"))
+    elements.append(PageBreak())
+    paragraph("5. Comparaison des NAV historiques", "Heading2")
     elements.append(Image(str(output / "backtest_nav_plot.png"), width=500, height=250, kind="proportional"))
     elements.append(PageBreak())
-    paragraph("4. Contrôle qualité des séries", "Heading2")
+    paragraph("6. Contrôle qualité des séries", "Heading2")
     paragraph(warning)
     paragraph("Aucune correction ou exclusion automatique n'est appliquée aux observations extrêmes.")
     pdf_table(alerts, columns=["date","asset","observed_weekly_return","severity"], n=28)
     elements.append(PageBreak())
-    paragraph("5. Contributions et rapprochement", "Heading2")
+    paragraph("7. Contributions et rapprochement", "Heading2")
     paragraph(f"Écart maximal entre attribution et rendement net : {max_error:.3g}. Les contributions individuelles et les frais se réconcilient avec les NAV.")
     pdf_table(top, columns=["date","strategy","asset","return_contribution"], n=20)
     elements.append(PageBreak())
-    paragraph("6. Expositions et concentration", "Heading2")
+    paragraph("8. Expositions et concentration", "Heading2")
     paragraph("Les poids dérivent entre décisions ; expositions calculées avant les rendements hebdomadaires.")
     pdf_table(concentrations, columns=["date", "strategy", "abs_weight"], n=14)
-    paragraph("7. Limites et questions ouvertes", "Heading2")
+    paragraph("9. Limites et questions ouvertes", "Heading2")
     for notice in [
         "Prix ajustés, distributions et éventuelles radiations : non certifiés.",
         "Les alertes sur variations extrêmes ne prouvent pas une erreur de données.",
         "La concentration peut augmenter entre deux rééquilibrages.",
         "Les coûts de financement et d'emprunt des titres vendus à découvert ne sont pas modélisés.",
-        "Plafonds, quarantaine, poids des shorts harmonisés et variantes MIXED_SCALES : en suspens.",
+        "Plafonds, quarantaine et poids des shorts harmonises : en suspens ; MIXED_SCALES comparees seulement comme variantes experimentales.",
         "Les principaux CSV permettent de reproduire les performances et le contrôle qualité.",
     ]:
         paragraph("- " + notice)
