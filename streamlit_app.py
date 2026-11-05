@@ -94,6 +94,7 @@ reviewed = None
 anomalies = None
 old_orphans = pd.DataFrame()
 review_ready = False
+decision_csv = b""
 source_payload = upload.getvalue() if upload is not None else None
 st.subheader("Étape 1 — Contrôle et validation des données")
 if source_payload is None:
@@ -212,6 +213,20 @@ if run_bt:
     bt_events = st.file_uploader("Registre d’événements CSV facultatif (asset,published_at,action,source)",
                                  type="csv", key="quality_events")
     st.caption("La volatilité extrême est signalée, mais n’entraîne aucune exclusion automatique. Pondérations originales préservées.")
+# The ZIP is valid only for the dataset, decisions and parameters that created it.
+form_parameters = {
+    "windows": tuple(sorted(selected)), "statistical": bool(run_statistical),
+    "backtest": bool(run_bt),
+}
+if run_bt:
+    form_parameters["backtest_settings"] = (
+        bt_start.isoformat(), int(bt_hold), bt_periods, float(bt_fees),
+        bt_quality, bt_events.getvalue() if bt_events is not None else None,
+    )
+current_run_signature = sha256(
+    (source_payload or b"") + decision_csv +
+    repr(form_parameters).encode("utf-8")
+).hexdigest()
 submitted = st.button("Lancer l'analyse", type="primary")
 
 if submitted:
@@ -381,10 +396,14 @@ if submitted:
                 parameters=params, run_status=run_status,
             )
             st.session_state["lppls_delivery_zip"] = delivery_zip
+            st.session_state["lppls_delivery_signature"] = current_run_signature
 
 # Display outside the form-submit branch so the download button remains visible
 # on subsequent reruns. This also avoids recalc when a download triggers a rerun.
-if st.session_state["lppls_delivery_zip"] is not None:
+if (
+    st.session_state["lppls_delivery_zip"] is not None
+    and st.session_state.get("lppls_delivery_signature") == current_run_signature
+):
     st.subheader("Télécharger tous les livrables")
     st.caption(
         "Une seule archive ZIP contenant les résultats LPPLS, "
