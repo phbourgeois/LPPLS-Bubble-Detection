@@ -133,7 +133,7 @@ else:
             editor_data.loc[editor_data.exclude_asset_retro, "action"] = "REVIEW"
             show_columns = [
                 "event_id", "asset", "date", "frequency", "kind", "return_pct",
-                "severity", "action", "exclude_asset_retro", "reason",
+                "gap_weeks", "severity", "action", "exclude_asset_retro", "reason",
                 "evidence", "published_at", "compatibility",
             ]
             st.caption(
@@ -145,13 +145,14 @@ else:
                 editor_data[show_columns], hide_index=True, use_container_width=True,
                 height=480, num_rows="fixed", key="review_" + audit_key,
                 disabled=["event_id","asset","date","frequency","kind",
-                          "return_pct","severity","compatibility"],
+                          "return_pct","gap_weeks","severity","compatibility"],
                 column_config={
                     "action": st.column_config.SelectboxColumn(
                         "Décision", options=["REVIEW", "KEEP", "BLOCK_ASOF"], required=True),
                     "exclude_asset_retro": st.column_config.CheckboxColumn(
                         "Exclure titre (rétro)", default=False),
                     "return_pct": st.column_config.NumberColumn("Variation (%)", format="%.2f"),
+                    "gap_weeks": st.column_config.NumberColumn("Semaines manquantes", format="%d"),
                 },
             )
             reviewed = merged.copy()
