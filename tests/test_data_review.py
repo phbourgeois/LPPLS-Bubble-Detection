@@ -121,3 +121,18 @@ def test_reject_duplicate_id_or_unsupported_action(tmp_path):
     rows.loc[rows.index[0], "action"] = "DROP_SINGLE_PRICE"
     with pytest.raises(ValueError, match="invalides"):
         validate_and_apply(rows, source)
+
+
+def test_missing_internal_weeks_are_reported_as_one_episode(tmp_path):
+    dates = pd.date_range("2024-01-05", periods=16, freq="W-FRI")
+    a = np.linspace(100.0, 115.0, len(dates))
+    a[6:8] = np.nan
+    source = tmp_path / "missing.csv"
+    pd.DataFrame({"Date": dates.strftime("%Y-%m-%d"), "A": a,
+                  "B": np.linspace(90.0, 100.0, len(dates))}).to_csv(
+                      source, sep=";", index=False)
+    flags = audit_prices(source, stale_weeks=30)
+    gaps = flags.loc[flags.kind == "INTERNAL_MISSING_WEEK_RUN"]
+    assert len(gaps) == 1
+    assert gaps.gap_weeks.iloc[0] == 2
+    assert gaps.date.iloc[0] == "2024-02-16"
