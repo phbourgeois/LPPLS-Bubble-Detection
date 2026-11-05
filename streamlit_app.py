@@ -15,7 +15,7 @@ from lppls_bubble.delivery import build_delivery_zip
 from lppls_bubble.lppls_fit import GRID_VERSION, GRID_SIZE
 from lppls_bubble.data_review import (
     ACTIONS, FIELDS, audit_prices, read_decisions,
-    merge_previous_decisions, validate_and_apply,
+    merge_previous_decisions, validate_and_apply, classify_uploaded_registry,
 )
 from lppls_bubble.statistical import StatisticalConfig, decide_asof
 import numpy as np
@@ -93,7 +93,7 @@ upload = st.file_uploader("CSV de cours (standard : Date;Actif... ou Datastream 
 reviewed = None
 anomalies = None
 old_orphans = pd.DataFrame()
-review_ready = False
+pending_critical = 0
 decision_csv = b""
 source_payload = upload.getvalue() if upload is not None else None
 st.subheader("Étape 1 — Contrôle et validation des données")
@@ -104,9 +104,45 @@ else:
         "Registre data_quality_decisions.csv d'une analyse précédente (facultatif)",
         type="csv", key="data_review_prior",
     )
+    st.caption(
+        "Le fichier data_quality_decisions.csv appartient à l'étape 1 ; "
+        "le registre d'événements datés est un format différent."
+    )
+    with st.expander("Option avancée — événements de blocage datés (facultatif)"):
+        bt_events = st.file_uploader(
+            "Registre d'événements (asset,published_at,action,source)",
+            type="csv", key="quality_events",
+            help="Nécessaire seulement pour activer des blocages documentés à des dates historiques."
+        )
     prior_payload = previous_file.getvalue() if previous_file is not None else None
+    legacy_event_payload = bt_events.getvalue() if bt_events is not None else None
+    registry_message = None
+    registry_error = None
+    if legacy_event_payload is not None:
+        try:
+            detected_format = classify_uploaded_registry(legacy_event_payload)
+            if detected_format == "decisions":
+                if prior_payload is not None:
+                    registry_error = (
+                        "Deux registres de décisions ont été chargés : "
+                        "conserve un seul fichier data_quality_decisions.csv."
+                    )
+                else:
+                    prior_payload = legacy_event_payload
+                    legacy_event_payload = None
+                    registry_message = (
+                        "Registre de décisions détecté dans le champ des événements : "
+                        "il est automatiquement réutilisé à l'étape 1. "
+                        "Tu pourras le charger directement dans le champ dédié la prochaine fois."
+                    )
+        except ValueError as exc:
+            registry_error = str(exc)
     audit_key = sha256(source_payload + (prior_payload or b"")).hexdigest()[:16]
     try:
+        if registry_error is not None:
+            raise ValueError(registry_error)
+        if registry_message:
+            st.info(registry_message)
         anomalies = calculate_price_audit(source_payload)
         old_decisions = read_decisions(prior_payload) if prior_payload is not None else None
         merged, old_orphans = merge_previous_decisions(anomalies, old_decisions)
@@ -177,27 +213,15 @@ else:
             reviewed.loc[edited.exclude_backtest_retro.to_numpy(dtype=bool), "action"] = "EXCLUDE_BACKTEST_RETRO"
             changed = reviewed.compatibility.eq("CHANGED_PRICE_REVIEW")
             if changed.any():
-                reconfirm = st.checkbox(
-                    "J'ai réexaminé les observations dont les prix ont changé et je confirme mes nouvelles décisions.",
-                    value=False, key="reconfirm_" + audit_key,
-                )
-                if reconfirm:
-                    reviewed.loc[changed, "compatibility"] = "REVALIDATED"
-            unresolved = reviewed.action.eq("REVIEW") & reviewed.severity.eq("CRITICAL")
-            if unresolved.any():
                 st.warning(
-                    f"{int(unresolved.sum())} anomalies critiques restent non résolues. "
-                    "Leurs rendements demeureront inchangés dans le backtest."
+                    f"{int(changed.sum())} observation(s) dont les prix ont changé : "
+                    "les décisions antérieures ne sont pas réappliquées. "
+                    "Toute nouvelle décision doit être justifiée."
                 )
-                acknowledge = st.checkbox(
-                    "Je souhaite poursuivre en conservant les anomalies critiques non résolues.",
-                    value=False, key="accept_unresolved_" + audit_key,
-                )
-            else:
-                acknowledge = True
-        if merged.empty:
-            acknowledge = True
-        review_ready = bool(acknowledge)
+                reviewed.loc[changed, "compatibility"] = "REVALIDATED"
+        pending_critical = int((
+            reviewed.action.eq("REVIEW") & reviewed.severity.eq("CRITICAL")
+        ).sum())
         decision_csv = reviewed[FIELDS].to_csv(index=False).encode("utf-8")
         st.download_button(
             "Télécharger le registre CSV des décisions",
@@ -227,9 +251,11 @@ if run_bt:
     bt_quality = st.selectbox("Politique de qualité des cours",
                               ["audit", "block_documented"], index=0,
                               help="audit: alertes sans exclusion; block_documented: blocages selon dates de publication d’un registre externe")
-    bt_events = st.file_uploader("Registre d’événements CSV facultatif (asset,published_at,action,source)",
-                                 type="csv", key="quality_events")
-    st.caption("La volatilité extrême est signalée, mais n’entraîne aucune exclusion automatique. Pondérations originales préservées.")
+    st.caption(
+        "Le registre de décisions se charge à l'étape 1. "
+        "Les événements documentés facultatifs sont accessibles dans "
+        "l'option avancée de cette même étape. Pondérations historiques préservées."
+    )
 # The ZIP is valid only for the dataset, decisions and parameters that created it.
 form_parameters = {
     "windows": tuple(sorted(selected)), "statistical": bool(run_statistical),
@@ -238,13 +264,31 @@ form_parameters = {
 if run_bt:
     form_parameters["backtest_settings"] = (
         bt_start.isoformat(), int(bt_hold), bt_periods, float(bt_fees),
-        bt_quality, bt_events.getvalue() if bt_events is not None else None,
+        bt_quality, legacy_event_payload if source_payload is not None else None,
     )
 current_run_signature = sha256(
     (source_payload or b"") + decision_csv +
     repr(form_parameters).encode("utf-8")
 ).hexdigest()
-submitted = st.button("Lancer l'analyse", type="primary")
+if pending_critical:
+    st.warning(
+        f"{pending_critical} anomalie(s) critique(s) restent à examiner. "
+        "Leurs rendements ne sont ni supprimés ni corrigés automatiquement."
+    )
+    accept_unresolved = st.checkbox(
+        "Je confirme poursuivre l'analyse avec ces anomalies critiques non résolues",
+        value=False,
+        key="accept_unresolved_stage2",
+    )
+else:
+    accept_unresolved = True
+can_launch = source_payload is not None and reviewed is not None and bool(selected)
+if not accept_unresolved:
+    st.caption("Coche la confirmation juste au-dessus pour activer le lancement.")
+submitted = st.button(
+    "Lancer l'analyse", type="primary",
+    disabled=(not can_launch or not accept_unresolved),
+)
 
 if submitted:
     # Never keep a previous archive when a new submission has failed.
@@ -255,8 +299,6 @@ if submitted:
         st.error("Selectionner au moins une fenetre.")
     elif reviewed is None:
         st.error("L'audit doit être réalisé avant l'analyse.")
-    elif not review_ready:
-        st.error("Valide les anomalies critiques non résolues avant de poursuivre.")
     else:
         try:
             with tempfile.TemporaryDirectory(prefix="lppls_reviewed_") as folder:
@@ -264,11 +306,11 @@ if submitted:
                 source_path.write_bytes(source_payload)
                 (_, snapshot_payload, backtest_payload, reviewed_events,
                  retro_exclusions, study_type) = validate_and_apply(reviewed, source_path)
-            existing_events = (bt_events.getvalue() if run_bt and bt_events is not None else None)
+            existing_events = legacy_event_payload if run_bt else None
             event_payload = combine_documented_events(reviewed_events, existing_events)
             effective_quality_policy = (
-                "block_documented" if reviewed_events is not None else
-                bt_quality if run_bt else "audit"
+                "block_documented" if run_bt and event_payload is not None
+                else bt_quality if run_bt else "audit"
             )
             weekly,bubbles,details,portfolio,exports = calculate(
                 snapshot_payload, tuple(sorted(selected))

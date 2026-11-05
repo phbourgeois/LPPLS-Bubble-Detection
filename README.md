@@ -109,3 +109,12 @@ Voir [méthode et tests de concordance](docs/UNIFIED_FULL_GRID_2026_11_05.md).
 Ce premier périmètre **ne supprime pas les cours individuels** : cette opération demanderait de définir une convention de rendement et de liquidation pour éviter de déplacer artificiellement les chocs entre semaines. Les corrections de cours et la certification d'opérations sur titres restent externes à ce filtre.
 
 Documentation et recette : [docs/TWO_STAGE_DATA_REVIEW_2026_11_05.md](docs/TWO_STAGE_DATA_REVIEW_2026_11_05.md). Aucun workflow GitHub Actions n'a été ajouté.
+
+
+### Correction du lancement de l'étape 2 (5 novembre 2026)
+
+Le CSV `data_quality_decisions.csv` contient les choix de validation de **l'étape 1** ; le CSV `asset,published_at,action,source` correspond uniquement aux événements datés de blocage. Les deux formats sont maintenant détectés automatiquement. Si `data_quality_decisions.csv` est chargé dans l'option avancée destinée aux événements, l'interface le reconnaît et le réutilise comme registre de décisions, sans le transmettre comme événements.
+
+S'il reste des alertes critiques `REVIEW`, une case de confirmation est placée **immédiatement au-dessus du bouton « Lancer l'analyse »**. Le bouton s'active après confirmation ; les alertes et les rendements demeurent inchangés et sont archivés. La validation de chaque événement n'est pas obligatoire pour exécuter une analyse exploratoire. En absence d'alerte critique, cette case ne bloque pas le lancement.
+
+Les registres datés de blocage restent une option avancée ; lorsque ce registre est fourni au backtest, il active la politique `block_documented` pour les futures positions éligibles (sans effacer les rendements passés).

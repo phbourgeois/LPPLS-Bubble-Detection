@@ -96,6 +96,33 @@ def audit_prices(path: str | Path, *, weekly_threshold: float = .50,
                              kind="stable").reset_index(drop=True)
 
 
+def classify_uploaded_registry(payload: bytes) -> str:
+    """Distinguish reusable review decisions from dated BLOCK/RELEASE ledgers.
+
+    The two CSV formats are not interchangeable. A legacy-uploaded review
+    decision file can be routed back to stage one instead of failing in the
+    historical backtest.
+    """
+    if not payload or not payload.strip():
+        raise ValueError("Le registre CSV est vide")
+    try:
+        header = set(pd.read_csv(BytesIO(payload), nrows=0, encoding="utf-8-sig").columns)
+    except (pd.errors.ParserError, UnicodeError, ValueError) as exc:
+        raise ValueError("Impossible de lire les colonnes du registre CSV") from exc
+    decision_columns = {"event_id", "asset", "date", "frequency",
+                        "kind", "price_fingerprint", "action"}
+    event_columns = {"asset", "published_at", "action", "source"}
+    if decision_columns.issubset(header):
+        return "decisions"
+    if event_columns.issubset(header):
+        return "events"
+    raise ValueError(
+        "Format de registre non reconnu : utiliser data_quality_decisions.csv "
+        "pour les décisions de l'étape 1, ou asset,published_at,action,source "
+        "pour les événements de blocage."
+    )
+
+
 def read_decisions(payload: bytes) -> pd.DataFrame:
     """Reject incompatible, duplicated or ambiguous previous CSV decisions."""
     df = pd.read_csv(BytesIO(payload), dtype=str, keep_default_na=False, encoding="utf-8-sig")
