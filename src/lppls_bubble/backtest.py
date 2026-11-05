@@ -14,6 +14,7 @@ import numpy as np
 import pandas as pd
 
 from .legacy_engine import DEFAULT_WINDOWS
+from .lppls_fit import fit_lppls, classify_lppls, GRID_VERSION, GRID_SIZE
 from .quality import load_event_register, quality_asof
 from .backtest_audit import weekly_price_alerts, check_weekly_contributions
 
@@ -52,40 +53,17 @@ def load_weekly(input_csv: str | Path) -> pd.DataFrame:
 
 
 def fit_tiny(log_prices: np.ndarray) -> dict:
-    """Grille reduite exactement derivee de l'annexe du notebook named."""
-    y = np.asarray(log_prices, dtype=float)
-    n = len(y)
-    if n < 5 or not np.isfinite(y).all():
-        return {"success": False, "n": n}
-    t = np.arange(n, dtype=float)
-    ahead_max = min(1.5 * n, max(6, n))
-    best = None
-    for m in (0.2, 0.5, 0.8):
-        for omega in (7.0, 9.5, 12.0):
-            for ahead in np.linspace(1.0, ahead_max, 3):
-                tau = ((n - 1) + ahead) - t
-                x1 = tau ** m
-                a = omega * np.log(tau)
-                X = np.column_stack((np.ones(n), x1, x1 * np.cos(a), x1 * np.sin(a)))
-                beta, *_ = np.linalg.lstsq(X, y, rcond=None)
-                resid = X @ beta - y
-                sse = float(np.dot(resid, resid))
-                if best is None or sse < best["sse"]:
-                    sst = float(np.sum((y - y.mean()) ** 2))
-                    r2 = 1 - sse / sst if sst > 0 else np.nan
-                    best = {"success": True, "B": float(beta[1]), "m": m, "omega": omega,
-                            "tc": (n - 1) + ahead, "r2": r2, "sse": sse, "n": n}
-    return best or {"success": False, "n": n}
+    """Compatibility alias: ALWAYS use the common 343-candidate grid.
+
+    Kept only for downstream code importing the historical name. No tiny
+    27-candidate approximation is executed.
+    """
+    return fit_lppls(log_prices)
 
 
 def classify(fit: dict) -> tuple[bool, str]:
-    if not fit.get("success"):
-        return False, "NONE"
-    n = fit["n"]
-    valid = (0.1 <= fit["m"] <= 0.9 and 6 <= fit["omega"] <= 13 and
-             (n - 1) < fit["tc"] <= (n - 1) + 1.5 * n and
-             np.isfinite(fit["r2"]) and fit["r2"] >= 0.2)
-    return bool(valid), ("UP" if fit["B"] < 0 else "DOWN") if valid else "NONE"
+    """Compatibility alias for the shared classification rule."""
+    return classify_lppls(fit)
 
 
 def _aggregated_signal(signals: dict[int, str], windows: tuple[int, ...]) -> str:
@@ -106,7 +84,8 @@ def build_targets_asof(past: pd.DataFrame, config: BacktestSettings,
         eligible = []
     if blocked_assets:
         eligible = [asset for asset in eligible if asset not in blocked_assets]
-    states = pd.DataFrame({"asset": list(past.columns), "state": "INELIGIBLE", "priority_score": 0.0})
+    states = pd.DataFrame({"asset": list(past.columns), "state": "INELIGIBLE", "priority_score": 0.0,
+                           "bubble_short_term": "NONE", "bubble_long_term": "NONE"})
     weights = pd.DataFrame({"asset": list(past.columns), "w_lo_target": 0.0, "w_ls_target": 0.0})
     if not eligible:
         return states, weights
@@ -117,8 +96,8 @@ def build_targets_asof(past: pd.DataFrame, config: BacktestSettings,
         valid_count = 0
         tc_valid = []
         for window in config.windows:
-            fit = fit_tiny(np.log(s[-window:]))
-            valid, signal = classify(fit)
+            fit = fit_lppls(np.log(s[-window:]))
+            valid, signal = classify_lppls(fit)
             signals[window] = signal
             valid_count += int(valid)
             if valid:
@@ -135,10 +114,12 @@ def build_targets_asof(past: pd.DataFrame, config: BacktestSettings,
         penalty = 1.0 if np.isnan(tc_med) else 1 + max(0, tc_med) / 10
         bonus = 2.0 if state.startswith("COHERENT_MULTI_") else (0.5 if state == "MIXED_SCALES" else 0)
         priority = 100 * (bonus + valid_count / len(config.windows)) / penalty
-        rows.append({"asset": asset, "state": state, "priority_score": priority})
+        rows.append({"asset": asset, "state": state, "priority_score": priority,
+                     "bubble_short_term": short, "bubble_long_term": long})
     bt = pd.DataFrame(rows).set_index("asset")
     states = states.set_index("asset")
-    states.loc[bt.index, ["state", "priority_score"]] = bt[["state", "priority_score"]]
+    state_columns = ["state", "priority_score", "bubble_short_term", "bubble_long_term"]
+    states.loc[bt.index, state_columns] = bt[state_columns]
     rets = past[eligible].pct_change(fill_method=None)
     recent_returns = rets.tail(52)
     # pandas Series.std has no min_count kwarg: mask by count separately.
@@ -338,6 +319,8 @@ def run_backtest(input_csv: str | Path, output_dir: str | Path,
     weights_lo = pd.concat(lo_rows, ignore_index=True)[["date", "asset", "weight"]]
     weights_ls = pd.concat(ls_rows, ignore_index=True)[["date", "asset", "weight"]]
     metrics = _metrics(nav, turnover, config, len(decision_dates))
+    metrics["lppls_grid_version"] = GRID_VERSION
+    metrics["lppls_grid_candidates_per_fit"] = GRID_SIZE
     for key in ("long_only", "long_short"):
         selected = attribution.loc[attribution.strategy == key, "weight_before_return"]
         metrics["max_single_asset_weight_" + key] = float(selected.abs().max()) if len(selected) else 0.0
