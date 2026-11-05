@@ -239,6 +239,7 @@ def run_backtest(input_csv: str | Path, output_dir: str | Path,
         before_lo, before_ls = nav_lo, nav_ls
         start_wlo, start_wls = wlo.copy(), wls.copy()
         ret_lo = ret_ls = 0.0
+        trade_lo = trade_ls = 0.0
         r = pd.Series(0.0, index=assets, dtype=float)
         if i > 0:
             r = returns.loc[t].reindex(assets)
@@ -279,17 +280,21 @@ def run_backtest(input_csv: str | Path, output_dir: str | Path,
         net_lo = nav_lo / before_lo - 1
         net_ls = nav_ls / before_ls - 1
         date_label = t.date().isoformat()
-        for strategy, original, drift, target, gross, net in (
-            ("long_only", start_wlo, drift_lo, target_lo, ret_lo, net_lo),
-            ("long_short", start_wls, drift_ls, target_ls, ret_ls, net_ls),
+        for strategy, original, drift, target, gross, net, turnover_abs in (
+            ("long_only", start_wlo, drift_lo, target_lo, ret_lo, net_lo, trade_lo),
+            ("long_short", start_wls, drift_ls, target_ls, ret_ls, net_ls, trade_ls),
         ):
             raw = original * r
-            transaction_cost = net - float(raw.sum())
+            # Independent prediction from the trading ledger and fee rate:
+            # NAV after trading = NAV before * (1 + gross) * (1 - turnover_abs * fee).
+            transaction_cost = -(1.0 + float(raw.sum())) * turnover_abs * config.fee_bps / 10000.0
             reconciliation_rows.append({
                 "date": date_label, "strategy": strategy,
                 "gross_asset_return": float(raw.sum()),
+                "absolute_traded_weight": turnover_abs,
                 "transaction_cost_contribution": transaction_cost,
                 "net_return": net,
+                "expected_net_return": float(raw.sum()) + transaction_cost,
                 "reconciliation_error": net - float(raw.sum()) - transaction_cost,
                 "gross_long_before_return": float(original.clip(lower=0).sum()),
                 "gross_short_before_return": float((-original.clip(upper=0)).sum()),
@@ -318,6 +323,8 @@ def run_backtest(input_csv: str | Path, output_dir: str | Path,
     quality_weekly_alerts = weekly_price_alerts(
         weekly, dates[0], dates[-1], config.quality_extreme_return, config.quality_stale_weeks)
     check_weekly_contributions(nav, reconciliation)
+    if reconciliation["reconciliation_error"].abs().max() > 1e-10:
+        raise AssertionError("Rendement NAV et frais prévus incohérents avec le registre des transactions")
     # Asset-level gross contributions reconcile to portfolio net returns.
     gross_check = attribution.groupby(["date", "strategy"])["return_contribution"].sum()
     summary_check = reconciliation.set_index(["date", "strategy"])["gross_asset_return"]
