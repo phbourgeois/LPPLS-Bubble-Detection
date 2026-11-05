@@ -67,7 +67,7 @@ def test_retro_exclusion_does_not_modify_original(tmp_path):
     original = source.read_bytes()
     reviewed = audit_prices(source, stale_weeks=30)
     reviewed.loc[reviewed.index[0], ["action", "reason"]] = ["EXCLUDE_ASSET_RETRO", "Sensitivity"]
-    _, filtered, events, excluded, study = validate_and_apply(reviewed, source)
+    _, filtered, filtered_bt, events, excluded, study = validate_and_apply(reviewed, source)
     assert events is None
     assert study == "RETROSPECTIVE_SENSITIVITY"
     assert excluded.asset.tolist() == ["A"]
@@ -75,14 +75,16 @@ def test_retro_exclusion_does_not_modify_original(tmp_path):
     selected_csv = tmp_path / "filtered.csv"
     selected_csv.write_bytes(filtered)
     assert read_prices(selected_csv).columns.tolist() == ["B"]
+    assert filtered_bt == filtered
     assert source.read_bytes() == original
 
 
 def test_unmodified_audit_preserves_original_bytes(tmp_path):
     source = sample_csv(tmp_path / "source.csv")
     rows = audit_prices(source, stale_weeks=30)
-    _, analyzed, events, excluded, study = validate_and_apply(rows, source)
+    _, analyzed, analyzed_bt, events, excluded, study = validate_and_apply(rows, source)
     assert analyzed == source.read_bytes()
+    assert analyzed_bt == analyzed
     assert events is None
     assert excluded.empty
     assert study == "UNMODIFIED_PRICES_AUDIT"
@@ -103,8 +105,9 @@ def test_asof_requires_reason_evidence_and_valid_publication(tmp_path):
     with pytest.raises(ValueError, match="précéder"):
         validate_and_apply(rows, source)
     rows.loc[i, "published_at"] = "2024-04-30"
-    _, data, ledger, _, study = validate_and_apply(rows, source)
+    _, data, data_bt, ledger, _, study = validate_and_apply(rows, source)
     assert data == source.read_bytes()
+    assert data_bt == data
     assert ledger is not None
     assert study == "DOCUMENTED_ASOF_CLAIM_UNVERIFIED"
     records = pd.read_csv(__import__("io").BytesIO(ledger))
@@ -136,3 +139,23 @@ def test_missing_internal_weeks_are_reported_as_one_episode(tmp_path):
     assert len(gaps) == 1
     assert gaps.gap_weeks.iloc[0] == 2
     assert gaps.date.iloc[0] == "2024-02-16"
+
+
+def test_backtest_only_checkbox_preserves_snapshot_universe(tmp_path):
+    source = sample_csv(tmp_path / "source.csv")
+    original = source.read_bytes()
+    rows = audit_prices(source, stale_weeks=30)
+    rows.loc[rows.index[0], ["action", "reason"]] = [
+        "EXCLUDE_BACKTEST_RETRO", "Exclude from retrospective backtest only"
+    ]
+    _, snapshot_csv, backtest_csv, events, exclusions, label = validate_and_apply(rows, source)
+    assert snapshot_csv == original
+    assert events is None
+    assert exclusions.to_dict("records") == [
+        {"asset": "A", "scope": "BACKTEST_ONLY",
+         "classification": "RETROSPECTIVE_SENSITIVITY"}
+    ]
+    bt_path = tmp_path / "backtest.csv"
+    bt_path.write_bytes(backtest_csv)
+    assert set(read_prices(bt_path).columns) == {"B"}
+    assert label == "RETROSPECTIVE_SENSITIVITY"
