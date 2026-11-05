@@ -47,10 +47,10 @@ def test_mixed_signals_keep_only_explicit_opposites():
     assert b["F"] == 0.0
     assert ml.sum() == pytest.approx(1.0)
     assert ml["A"] > 0 and ml["C"] > 0
-    assert all(ml[x] == 0 for x in ("B", "D", "E", "F"))
+    assert all(ml[x] == 0 for x in ("B", "D", "F"))\n    assert ml["E"] > 0  # ambiguous MIXED retained as in original
     assert mls["A"] > 0 and mls["C"] > 0
     assert mls["B"] < 0 and mls["D"] < 0
-    assert all(mls[x] == 0 for x in ("E", "F"))
+    assert mls["E"] > 0 and mls["F"] == 0
     assert mls.clip(lower=0).sum() == pytest.approx(.5)
     assert -mls.clip(upper=0).sum() == pytest.approx(.5)
     # Same short score weighting as original (not inverse volatility).
