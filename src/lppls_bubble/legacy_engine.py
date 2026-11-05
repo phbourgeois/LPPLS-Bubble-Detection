@@ -28,9 +28,9 @@ def run_snapshot(input_csv: str | Path, output_dir: str | Path, window_weeks=DEF
     # Aucune interpolation ou suppression des semaines calendaires manquantes.
     import numpy as np
     import pandas as pd
-    from .prices import read_prices
+    from .prices import read_prices, completed_weekly_prices
     df = read_prices(INPUT_CSV)
-    weekly = df.resample("W-FRI").last()
+    weekly = completed_weekly_prices(df)
     if weekly.empty:
         raise ValueError("Aucune observation hebdomadaire exploitable")
 
